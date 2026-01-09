@@ -1,0 +1,75 @@
+from datetime import date
+
+from pydantic import BaseModel, Field
+
+from src.model_selection import SplitRange
+
+
+class ColumnConfig(BaseModel):
+    """Конфигурация названий колонок."""
+
+    id: str = Field(default="article", description="Название колонки с идентификатором")
+    date: str = Field(default="date", description="Название колонки с датой")
+    main_target: str = Field(default="sales", description="Название главной целевой колонки")
+
+
+class FiltrationConfig(BaseModel):
+    min_series_length: int = 6
+    min_total_sales: int = 10
+
+
+class PreprocessingConfig(BaseModel):
+    """Конфигурация препроцессинга данных."""
+
+    apply_log: bool = Field(
+        default=True, description="Применять логарифмирование к целевым колонкам"
+    )
+
+
+class SplitConfig(BaseModel):
+    """Конфигурация временных промежутков для сплитов."""
+
+    train: SplitRange = Field(
+        default_factory=lambda: SplitRange(
+            date(2023, 1, 1), date(2024, 9, 30)
+        ),  # date(2024, 7, 31)),
+        description="Временной промежуток для train",
+    )
+    val: SplitRange | None = Field(
+        default_factory=lambda: None,  # SplitRange(date(2024, 8, 1), date(2024, 9, 30)),
+        description="Временной промежуток для val (None если без валидации)",
+    )
+    test: SplitRange = Field(
+        default_factory=lambda: SplitRange(date(2024, 10, 1), date(2024, 12, 31)),
+        description="Временной промежуток для test",
+    )
+
+    model_config = {"arbitrary_types_allowed": True}
+
+
+class DownstreamConfig(BaseModel):
+    """Конфигурация downstream-модели."""
+
+    lags: list[int] = Field(default=[1, 2, 3], description="Список лагов для фичей")
+    windows: list[int] = Field(default=[2, 3], description="Окна для rolling-фичей")
+    ema_spans: list[int] = Field(default=[2, 3], description="Окна для EMA-фичей")
+    round_predictions: bool = Field(default=True, description="Округлять предсказания до целых")
+    inverse: bool = Field(
+        default=True, description="Применять обратное преобразование к предсказаниям"
+    )
+
+
+class Settings(BaseModel):
+    """Главный конфиг пайплайна."""
+
+    columns: ColumnConfig = Field(default_factory=ColumnConfig, description="Конфигурация колонок")
+    preprocessing: PreprocessingConfig = Field(
+        default_factory=PreprocessingConfig, description="Конфигурация препроцессинга"
+    )
+    split: SplitConfig = Field(default_factory=SplitConfig, description="Конфигурация сплитов")
+    downstream: DownstreamConfig = Field(
+        default_factory=DownstreamConfig, description="Конфигурация downstream-модели"
+    )
+    filtration: FiltrationConfig = FiltrationConfig()
+
+    random_state: int = Field(default=420, description="Seed для воспроизводимости")
