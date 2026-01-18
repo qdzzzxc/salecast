@@ -133,3 +133,44 @@ def _log_split_info(
     logger.info(
         f"Split: {n_panels} панелей. Train: {len(train_df)}{val_info}, Test: {len(test_df)}"
     )
+
+def temporal_panel_split_by_size(
+    df: pd.DataFrame,
+    panel_column: str,
+    time_column: str,
+    test_size: int = 2,
+    val_size: int | None = None,
+    ignore_index: bool = True,
+) -> Splits[pd.DataFrame]:
+    """Делает temporal split с фиксированным количеством последних точек в val/test."""
+    if test_size < 1:
+        raise ValueError("test_size должен быть >= 1")
+    if val_size is not None and val_size < 1:
+        raise ValueError("val_size должен быть >= 1")
+
+    hold_out_size = test_size + (val_size or 0)
+    train_dfs, val_dfs, test_dfs = [], [], []
+
+    for panel_id in df[panel_column].unique():
+        panel_df = df[df[panel_column] == panel_id].sort_values(time_column)
+        if ignore_index:
+            panel_df = panel_df.reset_index(drop=True)
+
+        if len(panel_df) <= hold_out_size:
+            raise ValueError(
+                f"Недостаточно данных для панели {panel_id}: "
+                f"{len(panel_df)} точек, нужно > {hold_out_size}"
+            )
+
+        train_dfs.append(panel_df.iloc[:-hold_out_size])
+        if val_size is not None:
+            val_dfs.append(panel_df.iloc[-hold_out_size:-test_size])
+        test_dfs.append(panel_df.iloc[-test_size:])
+
+    train_df = pd.concat(train_dfs, ignore_index=ignore_index)
+    val_df = pd.concat(val_dfs, ignore_index=ignore_index) if val_size else None
+    test_df = pd.concat(test_dfs, ignore_index=ignore_index)
+
+    _log_split_info(train_df, val_df, test_df, panel_column)
+
+    return Splits(train=train_df, val=val_df, test=test_df)

@@ -143,6 +143,9 @@ def _plot_panel_predictions_plotly(
 
     start = 0
     overall_mape = []
+    prev_end_true = None
+    prev_end_pred = None
+    prev_end_idx = None
 
     for i, split_eval in enumerate(results.splits):
         panel_metric = None
@@ -161,6 +164,26 @@ def _plot_panel_predictions_plotly(
 
         color = colors[i % len(colors)]
         split_name = split_eval.split_name.title()
+
+        if prev_end_true is not None:
+            fig.add_trace(
+                go.Scatter(
+                    x=[prev_end_idx, start],
+                    y=[prev_end_true, y_true[0]],
+                    mode="lines",
+                    line=dict(color="gray", dash="dot"),
+                    showlegend=False,
+                )
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=[prev_end_idx, start],
+                    y=[prev_end_pred, y_pred[0]],
+                    mode="lines",
+                    line=dict(color="gray", dash="dot"),
+                    showlegend=False,
+                )
+            )
 
         fig.add_trace(
             go.Scatter(
@@ -185,7 +208,10 @@ def _plot_panel_predictions_plotly(
         )
 
         overall_mape.append(f"{split_name}: {panel_metric.metrics.mape:.4f}")
-        start = end - 1 if end > 0 else end
+        prev_end_true = y_true[-1]
+        prev_end_pred = y_pred[-1]
+        prev_end_idx = end - 1
+        start = end
 
     mape_text = " | ".join(overall_mape)
     fig.update_layout(

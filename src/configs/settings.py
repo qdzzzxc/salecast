@@ -14,8 +14,9 @@ class ColumnConfig(BaseModel):
 
 
 class FiltrationConfig(BaseModel):
-    min_series_length: int = 6
+    min_series_length: int = 18 #6
     min_total_sales: int = 10
+    max_zero_ratio: float = 0.2
 
 
 class PreprocessingConfig(BaseModel):
