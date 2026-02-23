@@ -222,4 +222,4 @@ data/*
 artifacts/*
 temp_notebooks/
 *.db
-lightning_logs
+lightning_logstests/scripts/runs/
