@@ -12,7 +12,7 @@ AggMethod: TypeAlias = Literal["sum", "mean", "first", "last", "min", "max"] | C
 ClipBounds: TypeAlias = dict[str, dict[int | str, tuple[float, float]]]
 PanelScalers: TypeAlias = dict[str, dict[int, StandardScaler]]
 MetricType: TypeAlias = Literal["mape", "rmse", "mae", "r2"]
-ModelType: TypeAlias = Literal["ridge", "catboost", "mlp"]
+ModelType: TypeAlias = Literal["seasonal_naive", "catboost", "autoarima", "autoets", "autotheta"]
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -272,6 +272,25 @@ class FiltrationResult:
     def summary(self) -> dict[str, int]:
         """Возвращает сводку по шагам: имя шага -> количество отфильтрованных."""
         return {step_report.step: len(step_report.dropped_ids) for step_report in self.steps}
+
+
+@dataclass
+class ModelResult:
+    """Результат обучения и оценки одной модели."""
+
+    name: str
+    evaluation: "EvaluationResults"
+    params: BaseModel
+
+
+@dataclass
+class AutoMLResult:
+    """Результат AutoML: лучшая модель и все результаты."""
+
+    best: ModelResult
+    all_results: list[ModelResult]
+    selection_metric: MetricType
+    selection_split: str
 
 
 class CatBoostParameters(BaseModel):

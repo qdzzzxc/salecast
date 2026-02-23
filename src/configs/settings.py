@@ -2,6 +2,7 @@ from datetime import date
 
 from pydantic import BaseModel, Field
 
+from src.automl.config import AutoMLConfig
 from src.model_selection import SplitRange
 
 
@@ -75,3 +76,7 @@ class Settings(BaseModel):
     filtration: FiltrationConfig = FiltrationConfig()
 
     random_state: int = Field(default=420, description="Seed для воспроизводимости")
+    automl: AutoMLConfig = Field(
+        default_factory=AutoMLConfig,
+        description="Конфигурация AutoML",
+    )
