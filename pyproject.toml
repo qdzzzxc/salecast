@@ -11,6 +11,7 @@ dependencies = [
     "ipywidgets>=8.1.8",
     "matplotlib>=3.10.8",
     "nbformat>=5.10.4",
+    "optuna>=4.7.0",
     "pandas>=2.3.3",
     "plotly>=6.5.1",
     "pydantic>=2.12.5",
@@ -19,12 +20,14 @@ dependencies = [
     "scikit-learn>=1.7.2",
     "scipy>=1.15.3",
     "seaborn>=0.13.2",
+    "statsforecast>=2.0.1",
     "umap-learn>=0.5.9.post2",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
 ]
 
 [tool.pytest.ini_options]
