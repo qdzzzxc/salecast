@@ -1,7 +1,10 @@
 """Проверка filter_time_series() на синтетических данных."""
 
 import logging
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pandas as pd
 

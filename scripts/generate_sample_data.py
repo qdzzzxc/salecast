@@ -1,7 +1,10 @@
 """Генератор синтетических данных для ручной проверки модулей."""
 
 import logging
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
 import pandas as pd
@@ -53,18 +56,19 @@ def _constant_series() -> np.ndarray:
 
 
 def _small_total_series() -> np.ndarray:
-    """Ряд с маленькой суммой < 10 — отсеется на min_total."""
-    values = np.zeros(N_DATES)
-    values[0] = 1.0
-    values[5] = 2.0
-    values[10] = 3.0
+    """Ряд с маленькой суммой < 10 — отсеется на min_total.
+
+    Все N_DATES точек ненулевые (zero_ratio=0 ≤ 0.2), std > 0,
+    но сумма = 0.2 * 24 + 0.3 * 24 / 2 ≈ 8.4 < 10.
+    """
+    values = np.where(np.arange(N_DATES) % 2 == 0, 0.2, 0.4).astype(float)
     return values
 
 
 def _edge_zeros_series(rng: np.random.Generator) -> np.ndarray:
-    """Ряд с нулями по краям, но живой внутри — проходит фильтры после тримминга."""
+    """Ряд с нулями по краям — проходит фильтры после тримминга (18 точек внутри)."""
     values = np.zeros(N_DATES)
-    values[3:20] = rng.integers(5, 40, size=17).astype(float)
+    values[3:21] = rng.integers(5, 40, size=18).astype(float)
     return values
 
 
