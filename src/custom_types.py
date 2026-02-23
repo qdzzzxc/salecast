@@ -231,6 +231,49 @@ class PanelPredictions:
     split: str
 
 
+@dataclass
+class FiltrationStepReport:
+    """Отчёт об одном шаге фильтрации."""
+
+    step: str
+    reason: str
+    dropped_ids: set[int | str]
+
+
+@dataclass
+class FiltrationResult:
+    """Результат фильтрации с отслеживанием причин отфильтровки."""
+
+    df: pd.DataFrame
+    steps: list[FiltrationStepReport]
+
+    def to_report_df(self) -> pd.DataFrame:
+        """Возвращает таблицу с отфильтрованными панелями и причинами."""
+        rows: list[dict[str, int | str]] = []
+        for step_report in self.steps:
+            rows.extend(
+                {
+                    "panel_id": panel_id,
+                    "step": step_report.step,
+                    "reason": step_report.reason,
+                }
+                for panel_id in step_report.dropped_ids
+            )
+        return pd.DataFrame(rows, columns=["panel_id", "step", "reason"])
+
+    @property
+    def total_dropped(self) -> int:
+        """Возвращает общее количество уникальных отфильтрованных панелей."""
+        all_dropped: set[int | str] = set()
+        for step_report in self.steps:
+            all_dropped |= step_report.dropped_ids
+        return len(all_dropped)
+
+    def summary(self) -> dict[str, int]:
+        """Возвращает сводку по шагам: имя шага -> количество отфильтрованных."""
+        return {step_report.step: len(step_report.dropped_ids) for step_report in self.steps}
+
+
 class CatBoostParameters(BaseModel):
     """Параметры для CatBoost регрессии."""
 
