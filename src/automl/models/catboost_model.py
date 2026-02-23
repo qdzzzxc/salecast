@@ -34,26 +34,32 @@ class CatBoostForecastModel:
         target = settings.columns.main_target
         panel_col = settings.columns.id
         apply_log = settings.preprocessing.apply_log
+        should_scale = not settings.downstream.round_predictions
 
-        scaled = scale_panel_splits(
-            splits=(feature_splits.train, feature_splits.val, feature_splits.test),
-            panel_column=panel_col,
-            target_columns=[target],
-            apply_log=apply_log,
-        )
+        if should_scale:
+            ready_splits = scale_panel_splits(
+                splits=(feature_splits.train, feature_splits.val, feature_splits.test),
+                panel_column=panel_col,
+                target_columns=[target],
+                apply_log=apply_log,
+            )
+            scalers = ready_splits.scalers
+        else:
+            ready_splits = feature_splits
+            scalers = None
 
         model = train_catboost(
-            train_df=scaled.train,
-            val_df=scaled.val,
+            train_df=ready_splits.train,
+            val_df=ready_splits.val,
             params=self.params,
             settings=settings,
         )
 
         evaluation = evaluate_catboost(
             model=model,
-            splits=scaled,
+            splits=ready_splits,
             settings=settings,
-            scalers=scaled.scalers,
+            scalers=scalers,
         )
 
         return ModelResult(
