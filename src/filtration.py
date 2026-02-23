@@ -48,12 +48,12 @@ def _filter_by_edge_zeros(
     df: pd.DataFrame, group_col: str, date_col: str, value_col: str
 ) -> pd.DataFrame:
     """Удаляет нулевые значения по краям временных рядов."""
-    return (
-        df.sort_values([group_col, date_col])
-        .groupby(group_col, group_keys=False)
-        .apply(_trim_edge_zeros, value_col=value_col)
-        .reset_index(drop=True)
-    )
+    df_sorted = df.sort_values([group_col, date_col])
+    trimmed = [_trim_edge_zeros(g, value_col=value_col) for _, g in df_sorted.groupby(group_col)]
+    non_empty = [g for g in trimmed if not g.empty]
+    if not non_empty:
+        return pd.DataFrame(columns=df.columns)
+    return pd.concat(non_empty, ignore_index=True)
 
 
 def _filter_by_inner_zeros(
