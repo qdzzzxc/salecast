@@ -3,6 +3,7 @@ from datetime import date
 from pydantic import BaseModel, Field
 
 from src.automl.config import AutoMLConfig
+from src.diagnostics.config import DiagnosticsConfig
 from src.model_selection import SplitRange
 
 
@@ -79,4 +80,8 @@ class Settings(BaseModel):
     automl: AutoMLConfig = Field(
         default_factory=AutoMLConfig,
         description="Конфигурация AutoML",
+    )
+    diagnostics: DiagnosticsConfig = Field(
+        default_factory=DiagnosticsConfig,
+        description="Конфигурация диагностики качества данных",
     )
