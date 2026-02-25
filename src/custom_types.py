@@ -13,6 +13,7 @@ ClipBounds: TypeAlias = dict[str, dict[int | str, tuple[float, float]]]
 PanelScalers: TypeAlias = dict[str, dict[int, StandardScaler]]
 MetricType: TypeAlias = Literal["mape", "rmse", "mae", "r2"]
 ModelType: TypeAlias = Literal["seasonal_naive", "catboost", "autoarima", "autoets", "autotheta"]
+QualityStatus: TypeAlias = Literal["green", "yellow", "red"]
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -291,6 +292,58 @@ class AutoMLResult:
     all_results: list[ModelResult]
     selection_metric: MetricType
     selection_split: str
+
+
+@dataclass
+class CheckResult:
+    """Результат одной диагностической проверки."""
+
+    name: str
+    status: QualityStatus
+    message: str
+    value: float | None
+
+    @property
+    def passed(self) -> bool:
+        """Возвращает True если проверка пройдена (статус green)."""
+        return self.status == "green"
+
+
+@dataclass
+class PanelDiagnostics:
+    """Результат диагностики одной панели."""
+
+    panel_id: int | str
+    overall_status: QualityStatus
+    checks: list[CheckResult]
+
+
+@dataclass
+class DiagnosticsResult:
+    """Результат диагностики всего датасета."""
+
+    panels: list[PanelDiagnostics]
+
+    def to_df(self) -> pd.DataFrame:
+        """Возвращает результаты диагностики в виде широкого DataFrame."""
+        rows: list[dict[str, object]] = []
+        for panel in self.panels:
+            row: dict[str, object] = {
+                "panel_id": panel.panel_id,
+                "overall_status": panel.overall_status,
+            }
+            for check in panel.checks:
+                row[f"{check.name}_passed"] = check.passed
+                row[f"{check.name}_value"] = check.value
+            rows.append(row)
+        return pd.DataFrame(rows)
+
+    def summary(self) -> dict[str, int]:
+        """Возвращает количество панелей по статусам."""
+        counts: dict[str, int] = {"green": 0, "yellow": 0, "red": 0}
+        for panel in self.panels:
+            counts[panel.overall_status] += 1
+        return counts
 
 
 class CatBoostParameters(BaseModel):
