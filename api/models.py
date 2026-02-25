@@ -10,20 +10,23 @@ from api.database import Base
 
 
 class Project(Base):
-    """Проект — набор данных с конфигурацией."""
+    """Проект — загруженный датасет с конфигурацией колонок."""
 
     __tablename__ = "projects"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    csv_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    panel_col: Mapped[str] = mapped_column(String(100), nullable=False)
+    date_col: Mapped[str] = mapped_column(String(100), nullable=False)
+    value_col: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
-    jobs: Mapped[list["Job"]] = relationship("Job", back_populates="project")
+    jobs: Mapped[list["Job"]] = relationship("Job", back_populates="project", order_by="Job.created_at")
 
 
 class Job(Base):
-    """Задача AutoML — запуск пайплайна для проекта."""
+    """Задача обработки данных для проекта."""
 
     __tablename__ = "jobs"
 
