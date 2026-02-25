@@ -15,53 +15,56 @@ _STEP_LABELS = {
 _ALL_STEPS = list(_STEP_LABELS.keys())
 
 
-def _poll_job(job_id: str) -> None:
-    """Поллит статус задачи и показывает прогресс."""
-    progress = st.progress(0, text="Запуск обработки...")
-    status_placeholder = st.empty()
+def _render_progress(job: dict) -> None:
+    """Отображает текущий прогресс задачи."""
+    steps_done = {s["name"] for s in job["steps"]}
+    n_done = len(steps_done)
+    pct = int(n_done / len(_ALL_STEPS) * 100)
 
-    completed_steps: set[str] = set()
-    while True:
-        job = get_job(job_id)
-        status = job["status"]
-        steps_done = {s["name"] for s in job["steps"]}
-
-        n_done = len(steps_done)
-        pct = int(n_done / len(_ALL_STEPS) * 100)
-        progress.progress(pct, text=f"{pct}%")
-
-        with status_placeholder.container():
-            for step_name in _ALL_STEPS:
-                label = _STEP_LABELS[step_name]
-                if step_name in steps_done:
-                    if step_name not in completed_steps:
-                        completed_steps.add(step_name)
-                    st.markdown(f"✅ {label}")
-                elif status == "running" and n_done == _ALL_STEPS.index(step_name):
-                    st.markdown(f"⏳ {label}")
-                else:
-                    st.markdown(f"⬜ {label}")
-
-        if status in ("done", "failed"):
-            break
-        time.sleep(1.5)
-        st.rerun()
-
-    if status == "done":
-        progress.progress(100, text="Готово")
-        set_project(job)
-        st.rerun()
-    else:
-        st.error("Обработка завершилась с ошибкой")
+    st.progress(pct, text=f"{pct}%")
+    for i, step_name in enumerate(_ALL_STEPS):
+        label = _STEP_LABELS[step_name]
+        if step_name in steps_done:
+            st.markdown(f"✅ {label}")
+        elif job["status"] == "running" and n_done == i:
+            st.markdown(f"⏳ {label}")
+        else:
+            st.markdown(f"⬜ {label}")
 
 
 def render() -> None:
     """Отображает экран загрузки данных."""
+
+    # Если идёт polling активного job — показываем только прогресс
+    if "polling_job_id" in st.session_state:
+        job_id = st.session_state.polling_job_id
+        st.title("Обработка данных")
+        try:
+            job = get_job(job_id)
+        except Exception as e:
+            st.error(f"Ошибка получения статуса: {e}")
+            del st.session_state.polling_job_id
+            return
+
+        _render_progress(job)
+
+        if job["status"] == "done":
+            del st.session_state.polling_job_id
+            set_project(job)
+            st.rerun()
+        elif job["status"] == "failed":
+            del st.session_state.polling_job_id
+            st.error("Обработка завершилась с ошибкой")
+        else:
+            time.sleep(1.5)
+            st.rerun()
+        return
+
+    # Форма загрузки
     st.title("Новый проект")
     st.caption("Загрузите CSV с временными рядами продаж")
 
     uploaded = st.file_uploader("CSV файл", type=["csv"])
-
     if uploaded is None:
         return
 
@@ -77,11 +80,11 @@ def render() -> None:
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        panel_col = st.selectbox("Колонка ID (панель)", columns)
+        panel_col = st.selectbox("Колонка ID (панель)", columns, index=0)
     with col2:
-        date_col = st.selectbox("Колонка даты", columns)
+        date_col = st.selectbox("Колонка даты", columns, index=min(1, len(columns) - 1))
     with col3:
-        value_col = st.selectbox("Колонка значений", columns)
+        value_col = st.selectbox("Колонка значений", columns, index=min(2, len(columns) - 1))
 
     name = st.text_input("Название проекта", value=uploaded.name.replace(".csv", ""))
 
@@ -103,7 +106,5 @@ def render() -> None:
                 st.error(f"Ошибка создания проекта: {e}")
                 return
 
-        job_id = project["latest_job"]["id"]
-        st.divider()
-        st.markdown("**Обработка данных**")
-        _poll_job(job_id)
+        st.session_state.polling_job_id = project["latest_job"]["id"]
+        st.rerun()

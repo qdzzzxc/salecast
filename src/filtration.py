@@ -27,7 +27,7 @@ def _aggregate_duplicates(df: pd.DataFrame, group_col: str, date_col: str) -> pd
     """Агрегирует дубликаты по панели и дате."""
     numeric_cols = df.select_dtypes("number").columns.tolist()
     agg_dict = {col: "sum" for col in numeric_cols if col not in [group_col, date_col]}
-    return df.groupby([group_col, date_col], as_index=False).agg(agg_dict)
+    return df.groupby([group_col, date_col]).agg(agg_dict).reset_index()
 
 
 def _trim_edge_zeros(group: pd.DataFrame, value_col: str) -> pd.DataFrame:

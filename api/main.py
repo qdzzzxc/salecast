@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from api.database import Base, engine
-from api.routers import jobs, projects
+from api.routers import jobs, panels, projects
 from api.storage import ensure_bucket
 
 
@@ -21,6 +21,7 @@ app = FastAPI(title="Salecast API", lifespan=lifespan)
 
 app.include_router(projects.router)
 app.include_router(jobs.router)
+app.include_router(panels.router)
 
 
 @app.get("/health")

@@ -1,9 +1,12 @@
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import aioboto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
+
+logger = logging.getLogger(__name__)
 
 _ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
 _ACCESS_KEY = os.getenv("MINIO_ROOT_USER", "sales_ts_prediction")
@@ -27,11 +30,15 @@ async def _s3_client() -> AsyncIterator:
 
 async def ensure_bucket() -> None:
     """Создаёт бакет если не существует."""
-    async with _s3_client() as client:
-        try:
-            await client.head_bucket(Bucket=_BUCKET)
-        except ClientError:
-            await client.create_bucket(Bucket=_BUCKET)
+    try:
+        async with _s3_client() as client:
+            try:
+                await client.head_bucket(Bucket=_BUCKET)
+            except ClientError:
+                await client.create_bucket(Bucket=_BUCKET)
+                logger.info("Создан бакет MinIO: %s", _BUCKET)
+    except (ClientError, BotoCoreError, Exception) as e:
+        logger.warning("Не удалось создать бакет MinIO: %s", e)
 
 
 async def upload_file(key: str, data: bytes, content_type: str = "application/octet-stream") -> None:

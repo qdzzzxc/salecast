@@ -1,6 +1,6 @@
 import streamlit as st
 
-from app.api_client import list_projects
+from app.api_client import delete_project, list_projects
 from app.pages import quality, upload
 from app.state import get_current_project, init_state, set_page, set_project
 
@@ -42,15 +42,25 @@ def _render_sidebar() -> None:
                 icon = {"done": "✅", "running": "⏳", "failed": "❌", "pending": "🕐"}.get(status, "")
                 label = f"{icon} {project['name']}"
                 is_active = str(project["id"]) == str(current_id)
-                if st.button(label, use_container_width=True, key=project["id"], disabled=is_active):
-                    if job.get("result"):
-                        full_job = {**job, "project_id": project["id"]}
-                        set_project(full_job)
-                        set_page("quality")
-                    else:
-                        st.session_state.current_project = {**project}
-                        set_page("upload")
-                    st.rerun()
+
+                col_name, col_del = st.columns([5, 1])
+                with col_name:
+                    if st.button(label, use_container_width=True, key=f"open_{project['id']}", disabled=is_active):
+                        if job.get("result"):
+                            full_job = {**job, "project_id": project["id"]}
+                            set_project(full_job)
+                            set_page("quality")
+                        else:
+                            st.session_state.current_project = {**project}
+                            set_page("upload")
+                        st.rerun()
+                with col_del:
+                    if st.button("🗑", key=f"del_{project['id']}", help="Удалить проект"):
+                        delete_project(str(project["id"]))
+                        if is_active:
+                            st.session_state.current_project = None
+                            set_page("upload")
+                        st.rerun()
 
 
 def _render_page() -> None:
