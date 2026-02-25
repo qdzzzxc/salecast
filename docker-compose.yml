@@ -58,6 +58,16 @@ services:
       redis:
         condition: service_healthy
 
+  streamlit:
+    build: .
+    command: streamlit run app/main.py --server.port=8501 --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
+    env_file: .env
+    depends_on:
+      api:
+        condition: service_started
+
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
