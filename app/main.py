@@ -1,8 +1,39 @@
+from pathlib import Path
+
 import streamlit as st
 
-from app.api_client import delete_project, list_projects
+from app.api_client import create_project, delete_project, list_projects
 from app.pages import quality, upload
 from app.state import get_current_project, init_state, set_page, set_project
+
+_EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
+_DEMO_PROJECTS = [
+    ("Demo: Базовый", "gui_data_example.csv"),
+    ("Demo: С фильтрацией", "gui_data_example_with_filtration.csv"),
+]
+
+
+def _ensure_demo_projects() -> None:
+    """Создаёт демо-проекты при первом запуске, если они ещё не существуют."""
+    if st.session_state.get("demo_initialized"):
+        return
+    try:
+        existing_names = {p["name"] for p in list_projects()}
+        for name, filename in _DEMO_PROJECTS:
+            if name not in existing_names:
+                csv_path = _EXAMPLES_DIR / filename
+                if csv_path.exists():
+                    create_project(
+                        name=name,
+                        file_bytes=csv_path.read_bytes(),
+                        filename=filename,
+                        panel_col="article",
+                        date_col="date",
+                        value_col="sales",
+                    )
+        st.session_state["demo_initialized"] = True
+    except Exception:
+        pass  # API ещё не готов — попробуем при следующем рендере
 
 st.set_page_config(
     page_title="Salecast",
@@ -12,6 +43,7 @@ st.set_page_config(
 )
 
 init_state()
+_ensure_demo_projects()
 
 
 def _render_sidebar() -> None:
