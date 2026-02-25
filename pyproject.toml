@@ -31,6 +31,7 @@ dependencies = [
     "seaborn>=0.13.2",
     "sqlalchemy[asyncio]>=2.0.46",
     "statsforecast>=2.0.1",
+    "streamlit>=1.54.0",
     "umap-learn>=0.5.9.post2",
     "uvicorn[standard]>=0.41.0",
 ]
