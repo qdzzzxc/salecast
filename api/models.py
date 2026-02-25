@@ -22,7 +22,7 @@ class Project(Base):
     value_col: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    jobs: Mapped[list["Job"]] = relationship("Job", back_populates="project", order_by="Job.created_at")
+    jobs: Mapped[list["Job"]] = relationship("Job", back_populates="project")
 
 
 class Job(Base):

@@ -69,3 +69,31 @@ def list_projects() -> list[dict[str, Any]]:
 def get_job(job_id: str) -> dict[str, Any]:
     """Получает статус задачи (синхронная обёртка)."""
     return _run(_get_job(job_id))
+
+
+async def _delete_project(project_id: str) -> None:
+    """Удаляет проект через API."""
+    async with aiohttp.ClientSession() as session:
+        async with session.delete(f"{_API_URL}/projects/{project_id}") as resp:
+            resp.raise_for_status()
+
+
+def delete_project(project_id: str) -> None:
+    """Удаляет проект (синхронная обёртка)."""
+    _run(_delete_project(project_id))
+
+
+async def _get_panels_data(project_id: str, ids: list[str]) -> list[dict]:
+    """Загружает данные панелей из API."""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            f"{_API_URL}/projects/{project_id}/panels",
+            params={"ids": ",".join(ids)},
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_panels_data(project_id: str, ids: list[str]) -> list[dict]:
+    """Загружает данные панелей (синхронная обёртка)."""
+    return _run(_get_panels_data(project_id, ids))

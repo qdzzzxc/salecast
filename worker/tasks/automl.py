@@ -97,6 +97,16 @@ def run_preprocessing(
             filtration_summary = filtration_result.summary()
             logger.info("Фильтрация завершена: осталось %d панелей", filtration_result.df[panel_col].nunique())
 
+            filtered_samples: dict = {}
+            for step_report in filtration_result.steps:
+                if not step_report.dropped_ids:
+                    continue
+                filtered_samples[step_report.step] = {
+                    "reason": step_report.reason,
+                    "total": len(step_report.dropped_ids),
+                    "panel_ids": [str(pid) for pid in step_report.dropped_ids],
+                }
+
             _add_step(session, job, "diagnostics", "Диагностика качества рядов")
             diagnostics_result = run_diagnostics(
                 filtration_result.df,
@@ -114,6 +124,7 @@ def run_preprocessing(
                     "total_before": df[panel_col].nunique(),
                     "total_after": filtration_result.df[panel_col].nunique(),
                     "steps": filtration_summary,
+                    "filtered_samples": filtered_samples,
                 },
                 "diagnostics": {
                     "summary": diagnostics_summary,

@@ -1,9 +1,9 @@
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -65,7 +65,8 @@ def _to_job_schema(job: Job) -> JobSchema:
 
 def _to_project_schema(project: Project) -> ProjectSchema:
     """Конвертирует ORM объект Project в схему."""
-    latest_job = _to_job_schema(project.jobs[-1]) if project.jobs else None
+    sorted_jobs = sorted(project.jobs, key=lambda j: j.created_at)
+    latest_job = _to_job_schema(sorted_jobs[-1]) if sorted_jobs else None
     return ProjectSchema(
         id=project.id,
         name=project.name,
@@ -111,8 +112,15 @@ async def create_project(
 
     run_preprocessing.delay(str(job.id), str(project_id), csv_key, panel_col, date_col, value_col)
 
-    project.jobs = [job]
-    return _to_project_schema(project)
+    return ProjectSchema(
+        id=project.id,
+        name=project.name,
+        panel_col=project.panel_col,
+        date_col=project.date_col,
+        value_col=project.value_col,
+        created_at=project.created_at.isoformat(),
+        latest_job=_to_job_schema(job),
+    )
 
 
 @router.get("", response_model=list[ProjectSchema])
@@ -137,3 +145,16 @@ async def get_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db))
     if project is None:
         raise HTTPException(status_code=404, detail="Проект не найден")
     return _to_project_schema(project)
+
+
+@router.delete("/{project_id}", status_code=204)
+async def delete_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Response:
+    """Удаляет проект и все связанные задачи."""
+    result = await db.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    await db.execute(delete(Job).where(Job.project_id == project_id))
+    await db.execute(delete(Project).where(Project.id == project_id))
+    await db.commit()
+    return Response(status_code=204)
