@@ -1,20 +1,26 @@
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from fastapi import FastAPI
 
 from api.database import Base, engine
+from api.routers import jobs, projects
+from api.storage import ensure_bucket
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Создаёт таблицы при старте приложения."""
+    """Инициализирует БД и MinIO бакет при старте приложения."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await ensure_bucket()
     yield
 
 
-app = FastAPI(title="Sales TS Prediction API", lifespan=lifespan)
+app = FastAPI(title="Salecast API", lifespan=lifespan)
+
+app.include_router(projects.router)
+app.include_router(jobs.router)
 
 
 @app.get("/health")
