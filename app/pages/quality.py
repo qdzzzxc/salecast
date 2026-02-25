@@ -104,7 +104,7 @@ def _render_filtration_steps(steps: dict, filtered_samples: dict, project_id: st
                 _render_panel_charts(st.session_state[key])
 
 
-def _render_panels_table(panels: list[dict]) -> None:
+def _render_panels_table(panels: list[dict], project_id: str) -> None:
     """Отображает таблицу с результатами диагностики по панелям."""
     rows = []
     for p in panels:
@@ -128,7 +128,45 @@ def _render_panels_table(panels: list[dict]) -> None:
     if status_filter != "Все":
         df = df[df["Статус"] == filter_map[status_filter]]
 
-    st.dataframe(df.drop(columns=["Статус"]), use_container_width=True, hide_index=True)
+    display_df = df.drop(columns=["Статус"]).reset_index(drop=True)
+    selection = st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        selection_mode="single-row",
+        on_select="rerun",
+    )
+
+    selected_rows = selection.selection.get("rows", [])
+    if selected_rows:
+        panel_id = str(display_df.iloc[selected_rows[0]]["Panel ID"])
+        st.markdown(f"**Ряд: {panel_id}**")
+        with st.spinner("Загружаю данные..."):
+            try:
+                data = get_panels_data(project_id, [panel_id])
+            except Exception as e:
+                st.error(f"Ошибка загрузки: {e}")
+                return
+        if data:
+            panel = data[0]
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=panel["dates"],
+                y=panel["values"],
+                mode="lines+markers",
+                line=dict(color="#7C6AF7", width=2),
+                marker=dict(size=5),
+            ))
+            fig.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="#FAFAFA",
+                margin=dict(t=10, b=30, l=40, r=10),
+                height=250,
+                xaxis=dict(showgrid=False),
+                yaxis=dict(showgrid=True, gridcolor="#333"),
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
 
 def render() -> None:
