@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from app.api_client import get_panels_data
-from app.state import get_current_project, set_page
+from app.state import get_current_project
 
 _STATUS_EMOJI = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
 _CHECK_NAMES = {
@@ -243,7 +243,3 @@ def render() -> None:
     else:
         st.info("Нет данных")
 
-    st.divider()
-    if st.button("Моделирование →", type="primary"):
-        set_page("automl")
-        st.rerun()

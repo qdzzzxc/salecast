@@ -151,3 +151,29 @@ async def _get_panels_data(project_id: str, ids: list[str]) -> list[dict]:
 def get_panels_data(project_id: str, ids: list[str]) -> list[dict]:
     """Загружает данные панелей (синхронная обёртка)."""
     return _run(_get_panels_data(project_id, ids))
+
+
+async def _get_automl_predictions(
+    project_id: str,
+    panel_ids: list[str],
+    models: list[str] | None = None,
+) -> dict[str, dict[str, list[dict]]]:
+    params: dict = {"panel_ids": ",".join(panel_ids)}
+    if models:
+        params["models"] = ",".join(models)
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            f"{_API_URL}/projects/{project_id}/automl_predictions",
+            params=params,
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_automl_predictions(
+    project_id: str,
+    panel_ids: list[str],
+    models: list[str] | None = None,
+) -> dict[str, dict[str, list[dict]]]:
+    """Возвращает предсказания моделей для набора панелей (синхронная обёртка)."""
+    return _run(_get_automl_predictions(project_id, panel_ids, models))

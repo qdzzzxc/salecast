@@ -1,7 +1,10 @@
+import asyncio
+import io
 import os
 import uuid
 from typing import Any
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -17,6 +20,36 @@ router = APIRouter(prefix="/projects", tags=["automl"])
 _redis_host = os.getenv("REDIS_HOST", "redis")
 _redis_port = int(os.getenv("REDIS_PORT", "6379"))
 _redis_password = os.getenv("REDIS_PASSWORD", "")
+
+_minio_endpoint = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
+_minio_access = os.getenv("MINIO_ROOT_USER", "sales_ts_prediction")
+_minio_secret = os.getenv("MINIO_ROOT_PASSWORD", "sales_ts_prediction")
+_minio_bucket = os.getenv("MINIO_BUCKET", "salecast")
+
+
+def _load_model_predictions(key: str, panel_ids: set[str]) -> dict[str, list[dict]]:
+    """Загружает предсказания модели из MinIO, фильтрует по panel_ids."""
+    import boto3
+    from botocore.client import Config
+
+    client = boto3.client(
+        "s3",
+        endpoint_url=_minio_endpoint,
+        aws_access_key_id=_minio_access,
+        aws_secret_access_key=_minio_secret,
+        config=Config(signature_version="s3v4"),
+    )
+    try:
+        resp = client.get_object(Bucket=_minio_bucket, Key=key)
+        df = pd.read_csv(io.BytesIO(resp["Body"].read()))
+        df["panel_id"] = df["panel_id"].astype(str)
+        df = df[df["panel_id"].isin(panel_ids)]
+        result: dict[str, list[dict]] = {}
+        for panel_id, group in df.groupby("panel_id"):
+            result[str(panel_id)] = group[["date", "y_pred", "split"]].to_dict("records")
+        return result
+    except Exception:
+        return {}
 
 
 async def _get_redis():
@@ -77,6 +110,53 @@ async def run_automl(
     )
 
     return _to_job_schema(job)
+
+
+@router.get("/{project_id}/automl_predictions")
+async def get_automl_predictions(
+    project_id: uuid.UUID,
+    panel_ids: str,
+    models: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """Возвращает предсказания моделей для набора панелей.
+
+    panel_ids — через запятую, models — через запятую (все если не указано).
+    Ответ: {model: {panel_id: [{date, y_pred, split}, ...]}}
+    """
+    db_result = await db.execute(
+        select(Project).options(selectinload(Project.jobs)).where(Project.id == project_id)
+    )
+    project = db_result.scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+
+    automl_job = next(
+        (j for j in sorted(project.jobs, key=lambda j: j.created_at, reverse=True)
+         if j.status == "done" and j.result and "automl" in j.result),
+        None,
+    )
+    if automl_job is None:
+        raise HTTPException(status_code=404, detail="Нет результатов AutoML")
+
+    model_results = automl_job.result["automl"]["model_results"]
+    requested_models = set(models.split(",")) if models else {mr["name"] for mr in model_results}
+    requested_panel_ids = set(panel_ids.split(","))
+
+    loop = asyncio.get_running_loop()
+    response: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for mr in model_results:
+        if mr["name"] not in requested_models:
+            continue
+        pred_key = mr.get("predictions_key")
+        if not pred_key:
+            continue
+        panel_preds = await loop.run_in_executor(
+            None, _load_model_predictions, pred_key, requested_panel_ids
+        )
+        response[mr["name"]] = panel_preds
+
+    return response
 
 
 @router.get("/{project_id}/automl_progress/{job_id}")
