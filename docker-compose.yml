@@ -39,6 +39,12 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   worker:
     build: .
@@ -70,6 +76,8 @@ services:
     env_file: .env
     depends_on:
       api:
+        condition: service_healthy
+      worker:
         condition: service_started
 
   minio:

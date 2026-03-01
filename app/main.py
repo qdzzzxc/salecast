@@ -48,6 +48,27 @@ init_state()
 _ensure_demo_projects()
 
 
+def _project_icon(project: dict) -> str:
+    """Возвращает иконку проекта в зависимости от стадии пайплайна."""
+    job = project.get("latest_job") or {}
+    status = job.get("status", "")
+    if not status:
+        return "○"
+    if status in ("pending", "running"):
+        return "⏳"
+    if status == "failed":
+        return "❌"
+    # done — определяем стадию по содержимому result
+    result = job.get("result") or {}
+    if "forecast" in result:
+        return "✅ 📈"
+    if "automl" in result:
+        return "✅ 🤖"
+    if "split" in result:
+        return "✅ 🗂"
+    return "✅"
+
+
 def _render_sidebar() -> None:
     """Отображает боковую панель с проектами."""
     with st.sidebar:
@@ -73,9 +94,7 @@ def _render_sidebar() -> None:
             current_id = current.get("project_id") if current else None
             for project in projects:
                 job = project.get("latest_job") or {}
-                status = job.get("status", "")
-                icon = {"done": "✅", "running": "⏳", "failed": "❌", "pending": "🕐"}.get(status, "")
-                label = f"{icon} {project['name']}"
+                label = f"{_project_icon(project)} {project['name']}"
                 is_active = str(project["id"]) == str(current_id)
 
                 col_name, col_del = st.columns([5, 1])
@@ -96,6 +115,24 @@ def _render_sidebar() -> None:
                             st.session_state.current_project = None
                             set_page("upload")
                         st.rerun()
+
+        st.sidebar.divider()
+        with st.sidebar.expander("⚙ Настройки"):
+            if st.button("↺ Сбросить демо-проекты", use_container_width=True):
+                try:
+                    for p in list_projects():
+                        if p["name"].startswith("Demo:"):
+                            delete_project(str(p["id"]))
+                    current = get_current_project()
+                    if current and str(current.get("project_id", current.get("id", ""))) in {
+                        str(p["id"]) for p in (projects or []) if p["name"].startswith("Demo:")
+                    }:
+                        st.session_state.current_project = None
+                        set_page("upload")
+                    st.session_state.pop("demo_initialized", None)
+                except Exception as e:
+                    st.error(f"Ошибка: {e}")
+                st.rerun()
 
 
 def _render_page() -> None:
