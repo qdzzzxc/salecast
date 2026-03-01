@@ -84,17 +84,20 @@ def get_project_preview(project_id: str) -> dict[str, Any]:
     return _run(_get_project_preview(project_id))
 
 
-async def _run_project(project_id: str) -> dict[str, Any]:
+async def _run_project(project_id: str, val_periods: int, test_periods: int) -> dict[str, Any]:
     """Запускает обработку проекта через API."""
     async with aiohttp.ClientSession() as session:
-        async with session.post(f"{_API_URL}/projects/{project_id}/run") as resp:
+        async with session.post(
+            f"{_API_URL}/projects/{project_id}/run",
+            json={"val_periods": val_periods, "test_periods": test_periods},
+        ) as resp:
             resp.raise_for_status()
             return await resp.json()
 
 
-def run_project(project_id: str) -> dict[str, Any]:
+def run_project(project_id: str, val_periods: int, test_periods: int) -> dict[str, Any]:
     """Запускает обработку проекта (синхронная обёртка)."""
-    return _run(_run_project(project_id))
+    return _run(_run_project(project_id, val_periods, test_periods))
 
 
 async def _delete_project(project_id: str) -> None:

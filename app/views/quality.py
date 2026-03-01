@@ -104,7 +104,31 @@ def _render_filtration_steps(steps: dict, filtered_samples: dict, project_id: st
                 _render_panel_charts(st.session_state[key])
 
 
-def _render_panels_table(panels: list[dict], project_id: str) -> None:
+_TRAIN_COLOR = "rgba(99, 149, 230, 0.15)"
+_VAL_COLOR = "rgba(255, 180, 50, 0.2)"
+_TEST_COLOR = "rgba(229, 100, 100, 0.2)"
+
+
+def _add_split_zones(fig: go.Figure, dates: list, val_periods: int, test_periods: int) -> None:
+    """Добавляет цветные зоны train/val/test на график."""
+    n = len(dates)
+    train_end = n - val_periods - test_periods
+    val_end = n - test_periods
+    if train_end > 0:
+        fig.add_vrect(x0=dates[0], x1=dates[train_end] if train_end < n else dates[-1],
+                      fillcolor=_TRAIN_COLOR, line_width=0,
+                      annotation_text="train", annotation_position="top left")
+    if 0 < train_end < val_end:
+        fig.add_vrect(x0=dates[train_end], x1=dates[val_end] if val_end < n else dates[-1],
+                      fillcolor=_VAL_COLOR, line_width=0,
+                      annotation_text="val", annotation_position="top left")
+    if val_end < n:
+        fig.add_vrect(x0=dates[val_end], x1=dates[-1],
+                      fillcolor=_TEST_COLOR, line_width=0,
+                      annotation_text="test", annotation_position="top left")
+
+
+def _render_panels_table(panels: list[dict], project_id: str, val_periods: int = 0, test_periods: int = 0) -> None:
     """Отображает таблицу с результатами диагностики по панелям."""
     rows = []
     for p in panels:
@@ -157,6 +181,8 @@ def _render_panels_table(panels: list[dict], project_id: str) -> None:
                 line=dict(color="#7C6AF7", width=2),
                 marker=dict(size=5),
             ))
+            if val_periods or test_periods:
+                _add_split_zones(fig, panel["dates"], val_periods, test_periods)
             fig.update_layout(
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
@@ -181,6 +207,9 @@ def render() -> None:
     result = project.get("result") or {}
     filtration = result.get("filtration", {})
     diagnostics = result.get("diagnostics", {})
+    split = result.get("split", {})
+    val_periods = split.get("val_periods", 0)
+    test_periods = split.get("test_periods", 0)
 
     st.title("Качество данных")
 
@@ -210,7 +239,7 @@ def render() -> None:
     st.markdown("**Детализация по панелям**")
     panels = diagnostics.get("panels", [])
     if panels:
-        _render_panels_table(panels, project_id=str(project.get("project_id", "")))
+        _render_panels_table(panels, project_id=str(project.get("project_id", "")), val_periods=val_periods, test_periods=test_periods)
     else:
         st.info("Нет данных")
 

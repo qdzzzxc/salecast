@@ -117,8 +117,19 @@ async def create_project(
     )
 
 
+class RunConfig(BaseModel):
+    """Параметры запуска обработки."""
+
+    val_periods: int = 6
+    test_periods: int = 6
+
+
 @router.post("/{project_id}/run", response_model=JobSchema)
-async def run_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> JobSchema:
+async def run_project(
+    project_id: uuid.UUID,
+    config: RunConfig = RunConfig(),
+    db: AsyncSession = Depends(get_db),
+) -> JobSchema:
     """Запускает Celery-задачу обработки данных для проекта."""
     result = await db.execute(
         select(Project).options(selectinload(Project.jobs)).where(Project.id == project_id)
@@ -139,6 +150,8 @@ async def run_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db))
         project.panel_col,
         project.date_col,
         project.value_col,
+        config.val_periods,
+        config.test_periods,
     )
 
     return _to_job_schema(job)
