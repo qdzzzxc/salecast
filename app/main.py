@@ -3,8 +3,8 @@ from pathlib import Path
 import streamlit as st
 
 from app.api_client import create_project, delete_project, list_projects
-from app.views import automl, forecast, quality, upload
 from app.state import get_current_project, init_state, set_page, set_project
+from app.views import automl, forecast, quality, upload
 
 _EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 _DEMO_PROJECTS = [

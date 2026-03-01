@@ -91,8 +91,7 @@ def _forecast_seasonal_naive(
     rows = []
     for panel_id, group in full_df.groupby(panel_col):
         future_dates = _next_dates(group[date_col], horizon)
-        for d in future_dates:
-            rows.append({panel_col: panel_id, date_col: d, value_col: np.nan})
+        rows.extend({panel_col: panel_id, date_col: d, value_col: np.nan} for d in future_dates)
 
     future_df = pd.DataFrame(rows)
     preds = model.predict(future_df, panel_col, value_col, is_train=False)
