@@ -112,6 +112,31 @@ def delete_project(project_id: str) -> None:
     _run(_delete_project(project_id))
 
 
+async def _run_automl(project_id: str, models: list[str], selection_metric: str, use_hyperopt: bool) -> dict[str, Any]:
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{_API_URL}/projects/{project_id}/run_automl",
+            json={"models": models, "selection_metric": selection_metric, "use_hyperopt": use_hyperopt},
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def run_automl(project_id: str, models: list[str], selection_metric: str, use_hyperopt: bool) -> dict[str, Any]:
+    return _run(_run_automl(project_id, models, selection_metric, use_hyperopt))
+
+
+async def _get_automl_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{_API_URL}/projects/{project_id}/automl_progress/{job_id}") as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_automl_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
+    return _run(_get_automl_progress(project_id, job_id))
+
+
 async def _get_panels_data(project_id: str, ids: list[str]) -> list[dict]:
     """Загружает данные панелей из API."""
     async with aiohttp.ClientSession() as session:

@@ -3,7 +3,7 @@ from pathlib import Path
 import streamlit as st
 
 from app.api_client import create_project, delete_project, list_projects
-from app.views import quality, upload
+from app.views import automl, quality, upload
 from app.state import get_current_project, init_state, set_page, set_project
 
 _EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
@@ -63,7 +63,7 @@ def _project_icon(project: dict) -> str:
     if "forecast" in result:
         return "✅ 📈"
     if "automl" in result:
-        return "✅ 🤖"
+        return "✅ ⚙"
     if "split" in result:
         return "✅ 🗂"
     return "✅"
@@ -103,7 +103,11 @@ def _render_sidebar() -> None:
                         if job.get("result"):
                             full_job = {**job, "project_id": project["id"]}
                             set_project(full_job)
-                            set_page("quality")
+                            result = job.get("result") or {}
+                            if "automl" in result:
+                                set_page("automl")
+                            else:
+                                set_page("quality")
                         else:
                             st.session_state.current_project = {**project}
                             set_page("upload")
@@ -135,16 +139,47 @@ def _render_sidebar() -> None:
                 st.rerun()
 
 
+_STEP_LABELS = {
+    "quality": "Качество данных",
+    "automl": "Моделирование",
+}
+
+
+def _render_steps(page: str) -> None:
+    """Отображает переключатель шагов пайплайна."""
+    options = list(_STEP_LABELS.keys())
+    selected = st.segmented_control(
+        label="Шаги",
+        options=options,
+        format_func=lambda x: _STEP_LABELS[x],
+        default=page,
+        key=f"pipeline_step_{page}",
+        label_visibility="collapsed",
+    )
+    if selected and selected != page:
+        set_page(selected)
+        st.rerun()
+
+
 def _render_page() -> None:
     """Рендерит текущую страницу."""
     page = st.session_state.get("page", "upload")
     if page == "upload":
         upload.render()
-    elif page == "quality":
+        return
+
+    project = get_current_project()
+    if project is None:
+        upload.render()
+        return
+
+    if page in _STEP_LABELS:
+        _render_steps(page)
+
+    if page == "quality":
         quality.render()
     elif page == "automl":
-        st.title("AutoML")
-        st.info("В разработке")
+        automl.render()
     elif page == "forecast":
         st.title("Прогноз")
         st.info("В разработке")

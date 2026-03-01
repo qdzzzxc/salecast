@@ -244,5 +244,6 @@ def render() -> None:
         st.info("Нет данных")
 
     st.divider()
-    if st.button("Запустить AutoML →", type="primary"):
+    if st.button("Моделирование →", type="primary"):
         set_page("automl")
+        st.rerun()
