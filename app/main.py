@@ -3,7 +3,7 @@ from pathlib import Path
 import streamlit as st
 
 from app.api_client import create_project, delete_project, list_projects
-from app.views import automl, quality, upload
+from app.views import automl, forecast, quality, upload
 from app.state import get_current_project, init_state, set_page, set_project
 
 _EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
@@ -104,7 +104,9 @@ def _render_sidebar() -> None:
                             full_job = {**job, "project_id": project["id"]}
                             set_project(full_job)
                             result = job.get("result") or {}
-                            if "automl" in result:
+                            if "forecast" in result:
+                                set_page("forecast")
+                            elif "automl" in result:
                                 set_page("automl")
                             else:
                                 set_page("quality")
@@ -191,8 +193,7 @@ def _render_page() -> None:
     elif page == "automl":
         automl.render()
     elif page == "forecast":
-        st.title("Прогноз")
-        st.info("В разработке")
+        forecast.render()
 
 
 _render_sidebar()

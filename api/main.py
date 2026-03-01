@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from api.database import Base, engine
-from api.routers import automl, jobs, panels, projects
+from api.routers import automl, forecast, jobs, panels, projects
 from api.storage import ensure_bucket
 
 
@@ -23,6 +23,7 @@ app.include_router(projects.router)
 app.include_router(jobs.router)
 app.include_router(panels.router)
 app.include_router(automl.router)
+app.include_router(forecast.router)
 
 
 @app.get("/health")
