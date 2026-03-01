@@ -12,7 +12,7 @@ celery = Celery(
     "sales_ts_prediction",
     broker=_redis_url,
     backend=_redis_url,
-    include=["worker.tasks.automl"],
+    include=["worker.tasks.automl", "worker.tasks.run_automl"],
 )
 
 celery.conf.update(
