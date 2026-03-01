@@ -122,6 +122,12 @@ def _render_sidebar() -> None:
 
         st.sidebar.divider()
         with st.sidebar.expander("⚙ Настройки"):
+            st.markdown("**Сервисы**")
+            st.link_button("Flower (Celery)", "http://localhost:5555", use_container_width=True)
+            st.link_button("RedisInsight", "http://localhost:5540", use_container_width=True)
+            st.link_button("Adminer (PostgreSQL)", "http://localhost:8080", use_container_width=True)
+            st.link_button("MinIO Console", "http://localhost:9001", use_container_width=True)
+            st.divider()
             if st.button("↺ Сбросить демо-проекты", use_container_width=True):
                 try:
                     for p in list_projects():
