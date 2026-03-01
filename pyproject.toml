@@ -1,5 +1,5 @@
 [project]
-name = "microniches"
+name = "salecast"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -14,10 +14,7 @@ dependencies = [
     "fastapi>=0.133.1",
     "flower>=2.0.1",
     "hdbscan>=0.8.41",
-    "ipykernel>=7.1.0",
-    "ipywidgets>=8.1.8",
     "matplotlib>=3.10.8",
-    "nbformat>=5.10.4",
     "optuna>=4.7.0",
     "pandas>=2.3.3",
     "plotly>=6.5.1",
@@ -36,10 +33,15 @@ dependencies = [
     "uvicorn[standard]>=0.41.0",
 ]
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
-    "pytest>=9.0.2",
+    "pytest",
     "pytest-cov>=7.0.0",
+]
+jupyter = [
+    "ipykernel>=7.1.0",
+    "ipywidgets>=8.1.8",
+    "nbformat>=5.10.4",
 ]
 
 [tool.pytest.ini_options]

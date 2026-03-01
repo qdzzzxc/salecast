@@ -87,7 +87,7 @@ async def create_project(
     value_col: str,
     db: AsyncSession = Depends(get_db),
 ) -> ProjectSchema:
-    """Создаёт проект: сохраняет CSV в MinIO, запускает обработку."""
+    """Создаёт проект: сохраняет CSV в MinIO. Обработка запускается отдельно."""
     project_id = uuid.uuid4()
     csv_key = f"projects/{project_id}/data.csv"
 
@@ -103,14 +103,8 @@ async def create_project(
         value_col=value_col,
     )
     db.add(project)
-
-    job = Job(id=uuid.uuid4(), project_id=project_id, status="pending", steps=[], result=None)
-    db.add(job)
     await db.commit()
     await db.refresh(project)
-    await db.refresh(job)
-
-    run_preprocessing.delay(str(job.id), str(project_id), csv_key, panel_col, date_col, value_col)
 
     return ProjectSchema(
         id=project.id,
@@ -119,8 +113,35 @@ async def create_project(
         date_col=project.date_col,
         value_col=project.value_col,
         created_at=project.created_at.isoformat(),
-        latest_job=_to_job_schema(job),
+        latest_job=None,
     )
+
+
+@router.post("/{project_id}/run", response_model=JobSchema)
+async def run_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> JobSchema:
+    """Запускает Celery-задачу обработки данных для проекта."""
+    result = await db.execute(
+        select(Project).options(selectinload(Project.jobs)).where(Project.id == project_id)
+    )
+    project = result.scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+
+    job = Job(id=uuid.uuid4(), project_id=project_id, status="pending", steps=[], result=None)
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+
+    run_preprocessing.delay(
+        str(job.id),
+        str(project_id),
+        project.csv_key,
+        project.panel_col,
+        project.date_col,
+        project.value_col,
+    )
+
+    return _to_job_schema(job)
 
 
 @router.get("", response_model=list[ProjectSchema])

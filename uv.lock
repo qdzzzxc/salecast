@@ -2132,89 +2132,6 @@ wheels = [
 ]
 
 [[package]]
-name = "microniches"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "aioboto3" },
-    { name = "aiohttp" },
-    { name = "alembic" },
-    { name = "asyncpg" },
-    { name = "catboost" },
-    { name = "celery", extra = ["redis"] },
-    { name = "fastapi" },
-    { name = "flower" },
-    { name = "hdbscan" },
-    { name = "ipykernel" },
-    { name = "ipywidgets" },
-    { name = "matplotlib" },
-    { name = "nbformat" },
-    { name = "optuna" },
-    { name = "pandas" },
-    { name = "plotly" },
-    { name = "psycopg2-binary" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "python-multipart" },
-    { name = "ruff" },
-    { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scikit-learn", version = "1.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scipy", version = "1.16.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "seaborn" },
-    { name = "sqlalchemy", extra = ["asyncio"] },
-    { name = "statsforecast" },
-    { name = "streamlit" },
-    { name = "umap-learn" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-cov" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aioboto3", specifier = ">=15.5.0" },
-    { name = "aiohttp", specifier = ">=3.13.3" },
-    { name = "alembic", specifier = ">=1.18.4" },
-    { name = "asyncpg", specifier = ">=0.31.0" },
-    { name = "catboost", specifier = ">=1.2.8" },
-    { name = "celery", extras = ["redis"], specifier = ">=5.6.2" },
-    { name = "fastapi", specifier = ">=0.133.1" },
-    { name = "flower", specifier = ">=2.0.1" },
-    { name = "hdbscan", specifier = ">=0.8.41" },
-    { name = "ipykernel", specifier = ">=7.1.0" },
-    { name = "ipywidgets", specifier = ">=8.1.8" },
-    { name = "matplotlib", specifier = ">=3.10.8" },
-    { name = "nbformat", specifier = ">=5.10.4" },
-    { name = "optuna", specifier = ">=4.7.0" },
-    { name = "pandas", specifier = ">=2.3.3" },
-    { name = "plotly", specifier = ">=6.5.1" },
-    { name = "psycopg2-binary", specifier = ">=2.9.11" },
-    { name = "pydantic", specifier = ">=2.12.5" },
-    { name = "pydantic-settings", specifier = ">=2.12.0" },
-    { name = "python-multipart", specifier = ">=0.0.22" },
-    { name = "ruff", specifier = ">=0.14.11" },
-    { name = "scikit-learn", specifier = ">=1.7.2" },
-    { name = "scipy", specifier = ">=1.15.3" },
-    { name = "seaborn", specifier = ">=0.13.2" },
-    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.46" },
-    { name = "statsforecast", specifier = ">=2.0.1" },
-    { name = "streamlit", specifier = ">=1.54.0" },
-    { name = "umap-learn", specifier = ">=0.5.9.post2" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.41.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=9.0.2" },
-    { name = "pytest-cov", specifier = ">=7.0.0" },
-]
-
-[[package]]
 name = "multidict"
 version = "6.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3658,6 +3575,88 @@ sdist = { url = "https://files.pythonhosted.org/packages/62/74/8d69dcb7a9efe8baa
 wheels = [
     { url = "https://files.pythonhosted.org/packages/48/f0/ae7ca09223a81a1d890b2557186ea015f6e0502e9b8cb8e1813f1d8cfa4e/s3transfer-0.14.0-py3-none-any.whl", hash = "sha256:ea3b790c7077558ed1f02a3072fb3cb992bbbd253392f4b6e9e8976941c7d456", size = 85712, upload-time = "2025-09-09T19:23:30.041Z" },
 ]
+
+[[package]]
+name = "salecast"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "aioboto3" },
+    { name = "aiohttp" },
+    { name = "alembic" },
+    { name = "asyncpg" },
+    { name = "catboost" },
+    { name = "celery", extra = ["redis"] },
+    { name = "fastapi" },
+    { name = "flower" },
+    { name = "hdbscan" },
+    { name = "matplotlib" },
+    { name = "optuna" },
+    { name = "pandas" },
+    { name = "plotly" },
+    { name = "psycopg2-binary" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "python-multipart" },
+    { name = "ruff" },
+    { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scikit-learn", version = "1.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scipy", version = "1.16.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "seaborn" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "statsforecast" },
+    { name = "streamlit" },
+    { name = "umap-learn" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+jupyter = [
+    { name = "ipykernel" },
+    { name = "ipywidgets" },
+    { name = "nbformat" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aioboto3", specifier = ">=15.5.0" },
+    { name = "aiohttp", specifier = ">=3.13.3" },
+    { name = "alembic", specifier = ">=1.18.4" },
+    { name = "asyncpg", specifier = ">=0.31.0" },
+    { name = "catboost", specifier = ">=1.2.8" },
+    { name = "celery", extras = ["redis"], specifier = ">=5.6.2" },
+    { name = "fastapi", specifier = ">=0.133.1" },
+    { name = "flower", specifier = ">=2.0.1" },
+    { name = "hdbscan", specifier = ">=0.8.41" },
+    { name = "ipykernel", marker = "extra == 'jupyter'", specifier = ">=7.1.0" },
+    { name = "ipywidgets", marker = "extra == 'jupyter'", specifier = ">=8.1.8" },
+    { name = "matplotlib", specifier = ">=3.10.8" },
+    { name = "nbformat", marker = "extra == 'jupyter'", specifier = ">=5.10.4" },
+    { name = "optuna", specifier = ">=4.7.0" },
+    { name = "pandas", specifier = ">=2.3.3" },
+    { name = "plotly", specifier = ">=6.5.1" },
+    { name = "psycopg2-binary", specifier = ">=2.9.11" },
+    { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "pydantic-settings", specifier = ">=2.12.0" },
+    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.0.0" },
+    { name = "python-multipart", specifier = ">=0.0.22" },
+    { name = "ruff", specifier = ">=0.14.11" },
+    { name = "scikit-learn", specifier = ">=1.7.2" },
+    { name = "scipy", specifier = ">=1.15.3" },
+    { name = "seaborn", specifier = ">=0.13.2" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.46" },
+    { name = "statsforecast", specifier = ">=2.0.1" },
+    { name = "streamlit", specifier = ">=1.54.0" },
+    { name = "umap-learn", specifier = ">=0.5.9.post2" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.41.0" },
+]
+provides-extras = ["dev", "jupyter"]
 
 [[package]]
 name = "scikit-learn"

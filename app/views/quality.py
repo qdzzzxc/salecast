@@ -210,7 +210,7 @@ def render() -> None:
     st.markdown("**Детализация по панелям**")
     panels = diagnostics.get("panels", [])
     if panels:
-        _render_panels_table(panels)
+        _render_panels_table(panels, project_id=str(project.get("project_id", "")))
     else:
         st.info("Нет данных")
 
