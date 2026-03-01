@@ -142,12 +142,15 @@ def _render_sidebar() -> None:
 _STEP_LABELS = {
     "quality": "Качество данных",
     "automl": "Моделирование",
+    "forecast": "Прогноз",
 }
 
 
-def _render_steps(page: str) -> None:
+def _render_steps(page: str, result: dict) -> None:
     """Отображает переключатель шагов пайплайна."""
-    options = list(_STEP_LABELS.keys())
+    options = ["quality", "automl"]
+    if result.get("automl"):
+        options.append("forecast")
     selected = st.segmented_control(
         label="Шаги",
         options=options,
@@ -174,7 +177,8 @@ def _render_page() -> None:
         return
 
     if page in _STEP_LABELS:
-        _render_steps(page)
+        result = (project.get("result") or {})
+        _render_steps(page, result)
 
     if page == "quality":
         quality.render()

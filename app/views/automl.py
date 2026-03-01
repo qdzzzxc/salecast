@@ -4,8 +4,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from app.api_client import get_automl_progress, get_job, get_panels_data, run_automl
-from app.state import get_current_project, set_page
+from app.api_client import get_automl_predictions, get_automl_progress, get_job, get_panels_data, run_automl
+from app.state import get_current_project
 
 _ALL_MODELS = ["seasonal_naive", "catboost", "autoarima", "autoets", "autotheta"]
 _MODEL_LABELS = {
@@ -14,6 +14,13 @@ _MODEL_LABELS = {
     "autoarima": "AutoARIMA",
     "autoets": "AutoETS",
     "autotheta": "AutoTheta",
+}
+_MODEL_COLORS = {
+    "seasonal_naive": "#4CAF50",
+    "catboost": "#FF6B6B",
+    "autoarima": "#FFB347",
+    "autoets": "#87CEEB",
+    "autotheta": "#F7C948",
 }
 _METRICS = ["mape", "rmse", "mae"]
 
@@ -90,13 +97,28 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
     model_results = automl_result["model_results"]
     val_periods = split_result.get("val_periods", 0)
     test_periods = split_result.get("test_periods", 0)
+    project_id = str(project.get("project_id", ""))
+
+    # Сортируем модели по val-метрике для определения топ-3
+    sorted_mrs = sorted(model_results, key=lambda mr: mr.get(f"val_{metric}", float("inf")))
+    all_model_names = [mr["name"] for mr in sorted_mrs]
+    default_model_names = [mr["name"] for mr in sorted_mrs[:3]]
 
     st.success(f"Лучшая модель: **{_MODEL_LABELS.get(best_model, best_model)}**")
+
+    # Глобальный селектор моделей — применяется ко всем графикам на странице
+    selected_models = st.multiselect(
+        "Модели на графиках",
+        options=all_model_names,
+        default=[m for m in default_model_names if m in all_model_names],
+        format_func=lambda x: _MODEL_LABELS.get(x, x),
+        key="automl_model_selector",
+    )
 
     # Сводная таблица моделей
     st.markdown("**Сравнение моделей**")
     summary_rows = []
-    for mr in model_results:
+    for mr in sorted_mrs:
         summary_rows.append({
             "Модель": _MODEL_LABELS.get(mr["name"], mr["name"]),
             f"Val {metric.upper()}": round(mr.get(f"val_{metric}", float("inf")), 4),
@@ -129,29 +151,48 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
     selected_rows = selection.selection.get("rows", [])
     if selected_rows:
         panel_id = str(panel_df.iloc[selected_rows[0]]["Panel ID"])
-        _render_panel_chart(str(project.get("project_id", "")), panel_id, val_periods, test_periods)
+        _render_panel_chart(project_id, panel_id, val_periods, test_periods,
+                            all_model_names, selected_models)
 
     st.divider()
 
     # Лучшие / худшие панели
     col_best, col_worst = st.columns(2)
-    top3 = panel_df.head(3)["Panel ID"].tolist()
-    bot3 = panel_df.tail(3)["Panel ID"].tolist()
+    top3 = [str(p) for p in panel_df.head(3)["Panel ID"].tolist()]
+    bot3 = [str(p) for p in panel_df.tail(3)["Panel ID"].tolist()]
+    mini_panel_ids = list(dict.fromkeys(top3 + bot3))
+
+    # Предсказания для всех обученных моделей — кешируем, переключение моделей без запросов
+    mini_cache_key = f"automl_mini_preds_{project_id}"
+    if mini_cache_key not in st.session_state and mini_panel_ids:
+        with st.spinner("Загрузка предсказаний..."):
+            try:
+                st.session_state[mini_cache_key] = get_automl_predictions(
+                    project_id, mini_panel_ids, all_model_names
+                )
+            except Exception:
+                st.session_state[mini_cache_key] = {}
+    mini_predictions = st.session_state.get(mini_cache_key, {})
 
     with col_best:
         st.markdown("**Топ-3 (лучший test)**")
-        _render_mini_charts(str(project.get("project_id", "")), top3, val_periods, test_periods, key_prefix="top")
+        _render_mini_charts(project_id, top3, val_periods, test_periods, key_prefix="top",
+                            predictions=mini_predictions, selected_models=selected_models)
     with col_worst:
         st.markdown("**Антитоп-3 (худший test)**")
-        _render_mini_charts(str(project.get("project_id", "")), bot3, val_periods, test_periods, key_prefix="bot")
-
-    st.divider()
-    if st.button("→ Прогноз", type="primary"):
-        set_page("forecast")
-        st.rerun()
+        _render_mini_charts(project_id, bot3, val_periods, test_periods, key_prefix="bot",
+                            predictions=mini_predictions, selected_models=selected_models)
 
 
-def _render_panel_chart(project_id: str, panel_id: str, val_periods: int, test_periods: int) -> None:
+
+def _render_panel_chart(
+    project_id: str,
+    panel_id: str,
+    val_periods: int,
+    test_periods: int,
+    all_models: list[str],
+    selected_models: list[str],
+) -> None:
     try:
         data = get_panels_data(project_id, [panel_id])
     except Exception:
@@ -164,8 +205,32 @@ def _render_panel_chart(project_id: str, panel_id: str, val_periods: int, test_p
     train_end = n - val_periods - test_periods
     val_end = n - test_periods
 
+    # Загружаем предсказания один раз и кешируем в session_state
+    cache_key = f"automl_preds_{project_id}_{panel_id}"
+    if cache_key not in st.session_state and selected_models:
+        with st.spinner("Загрузка предсказаний..."):
+            try:
+                st.session_state[cache_key] = get_automl_predictions(project_id, [panel_id], all_models)
+            except Exception:
+                st.session_state[cache_key] = {}
+    predictions = st.session_state.get(cache_key, {})
+
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=dates, y=values, mode="lines", line=dict(color="#7C6AF7", width=1.5)))
+    fig.add_trace(go.Scatter(x=dates, y=values, mode="lines", name="Фактическое",
+                             line=dict(color="#7C6AF7", width=1.5)))
+
+    for model in selected_models:
+        model_preds = predictions.get(model, {}).get(panel_id, [])
+        if model_preds:
+            pred_dates = [p["date"] for p in model_preds if p["split"] in ("val", "test")]
+            pred_vals = [p["y_pred"] for p in model_preds if p["split"] in ("val", "test")]
+            if pred_dates:
+                fig.add_trace(go.Scatter(
+                    x=pred_dates, y=pred_vals, mode="lines",
+                    name=_MODEL_LABELS.get(model, model),
+                    line=dict(color=_MODEL_COLORS.get(model, "#aaa"), width=1.5, dash="dot"),
+                ))
+
     if train_end > 0:
         fig.add_vrect(x0=dates[0], x1=dates[train_end] if train_end < n else dates[-1],
                       fillcolor=_TRAIN_COLOR, line_width=0, annotation_text="train", annotation_position="top left")
@@ -176,14 +241,23 @@ def _render_panel_chart(project_id: str, panel_id: str, val_periods: int, test_p
         fig.add_vrect(x0=dates[val_end], x1=dates[-1],
                       fillcolor=_TEST_COLOR, line_width=0, annotation_text="test", annotation_position="top left")
     fig.update_layout(
-        title=f"Панель {panel_id}", height=300, margin=dict(l=0, r=0, t=40, b=0),
+        title=f"Панель {panel_id}", height=320, margin=dict(l=0, r=0, t=40, b=0),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="#FAFAFA",
-        xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor="#333"), showlegend=False,
+        xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor="#333"), showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     )
     st.plotly_chart(fig, use_container_width=True, key=f"panel_chart_{panel_id}")
 
 
-def _render_mini_charts(project_id: str, panel_ids: list[str], val_periods: int, test_periods: int, key_prefix: str = "") -> None:
+def _render_mini_charts(
+    project_id: str,
+    panel_ids: list[str],
+    val_periods: int,
+    test_periods: int,
+    key_prefix: str = "",
+    predictions: dict | None = None,
+    selected_models: list[str] | None = None,
+) -> None:
     if not panel_ids:
         return
     try:
@@ -191,12 +265,27 @@ def _render_mini_charts(project_id: str, panel_ids: list[str], val_periods: int,
     except Exception:
         return
     for series in data:
+        panel_id = str(series["panel_id"])
         dates, values = series["dates"], series["values"]
         n = len(dates)
         train_end = n - val_periods - test_periods
         val_end = n - test_periods
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=dates, y=values, mode="lines", line=dict(color="#7C6AF7", width=1)))
+        fig.add_trace(go.Scatter(x=dates, y=values, mode="lines", name="Фактическое",
+                                 line=dict(color="#7C6AF7", width=1)))
+
+        if predictions and selected_models:
+            for model in selected_models:
+                model_preds = predictions.get(model, {}).get(panel_id, [])
+                pred_dates = [p["date"] for p in model_preds if p["split"] in ("val", "test")]
+                pred_vals = [p["y_pred"] for p in model_preds if p["split"] in ("val", "test")]
+                if pred_dates:
+                    fig.add_trace(go.Scatter(
+                        x=pred_dates, y=pred_vals, mode="lines",
+                        name=_MODEL_LABELS.get(model, model),
+                        line=dict(color=_MODEL_COLORS.get(model, "#4CAF50"), width=1, dash="dot"),
+                    ))
+
         if train_end > 0:
             fig.add_vrect(x0=dates[0], x1=dates[train_end] if train_end < n else dates[-1],
                           fillcolor=_TRAIN_COLOR, line_width=0)
@@ -206,11 +295,13 @@ def _render_mini_charts(project_id: str, panel_ids: list[str], val_periods: int,
         if val_end < n:
             fig.add_vrect(x0=dates[val_end], x1=dates[-1], fillcolor=_TEST_COLOR, line_width=0)
         fig.update_layout(
-            title=f"ID: {series['panel_id']}", height=180, margin=dict(l=0, r=0, t=30, b=0),
+            title=f"ID: {panel_id}", height=200, margin=dict(l=0, r=0, t=30, b=0),
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="#FAFAFA",
-            xaxis=dict(showgrid=False, showticklabels=False), yaxis=dict(showgrid=False), showlegend=False,
+            xaxis=dict(showgrid=False, showticklabels=False), yaxis=dict(showgrid=False),
+            showlegend=bool(selected_models),
+            legend=dict(orientation="h", yanchor="top", y=-0.05, xanchor="left", x=0, font=dict(size=10)),
         )
-        st.plotly_chart(fig, use_container_width=True, key=f"mini_{key_prefix}_{series['panel_id']}")
+        st.plotly_chart(fig, use_container_width=True, key=f"mini_{key_prefix}_{panel_id}")
 
 
 def render() -> None:

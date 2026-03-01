@@ -60,6 +60,38 @@ def _load_csv(key: str) -> pd.DataFrame:
     return pd.read_csv(io.BytesIO(resp["Body"].read()))
 
 
+def _upload_csv(key: str, df: pd.DataFrame) -> None:
+    """Загружает DataFrame как CSV в MinIO."""
+    client = _get_s3()
+    buf = df.to_csv(index=False).encode()
+    client.put_object(Bucket=_minio_bucket, Key=key, Body=buf, ContentLength=len(buf))
+
+
+def _build_predictions_df(result, splits: Splits, panel_col: str, date_col: str) -> pd.DataFrame:
+    """Строит DataFrame с предсказаниями модели (val + test) по всем панелям."""
+    split_dfs = {}
+    if splits.val is not None:
+        split_dfs["val"] = splits.val
+    if splits.test is not None:
+        split_dfs["test"] = splits.test
+
+    rows = []
+    for split_eval in result.evaluation.splits:
+        split_name = split_eval.split_name
+        split_df = split_dfs.get(split_name)
+        if split_df is None:
+            continue
+        for pm in split_eval.panel_metrics:
+            panel_id = str(pm.panel_id)
+            panel_df = split_df[split_df[panel_col].astype(str) == panel_id].sort_values(date_col)
+            dates = pd.to_datetime(panel_df[date_col]).dt.strftime("%Y-%m-%d").tolist()
+            y_pred = list(pm.y_pred) if hasattr(pm.y_pred, "__iter__") else []
+            if len(dates) == len(y_pred):
+                for d, p in zip(dates, y_pred):
+                    rows.append({"panel_id": panel_id, "date": d, "split": split_name, "y_pred": float(p)})
+    return pd.DataFrame(rows)
+
+
 def _add_step(session: Session, job, name: str, message: str) -> None:
     from api.models import Job
     steps = list(job.steps)
@@ -174,6 +206,15 @@ def run_automl(
                 result = model.fit_evaluate(splits, settings)
                 all_results.append(result)
 
+                # Сохраняем предсказания (val + test) в MinIO
+                pred_key = f"projects/{project_id}/automl_predictions/{model_type}.csv"
+                try:
+                    pred_df = _build_predictions_df(result, splits, panel_col, date_col)
+                    _upload_csv(pred_key, pred_df)
+                except Exception:
+                    logger.exception("Не удалось сохранить предсказания для модели %s", model_type)
+                    pred_key = None
+
                 val_mape = _extract_metric(result, selection_metric, "val")
                 test_mape = _extract_metric(result, selection_metric, "test")
                 redis_client.xadd(stream_key, {
@@ -192,6 +233,8 @@ def run_automl(
 
             _add_step(session, job, "saving", "Сохранение результатов AutoML")
 
+            pred_keys = {r.name: f"projects/{project_id}/automl_predictions/{r.name}.csv" for r in all_results}
+
             model_results = []
             for r in all_results:
                 model_results.append({
@@ -199,6 +242,7 @@ def run_automl(
                     f"val_{selection_metric}": _extract_metric(r, selection_metric, "val"),
                     f"test_{selection_metric}": _extract_metric(r, selection_metric, "test"),
                     "panel_metrics": _extract_panel_metrics(r, selection_metric),
+                    "predictions_key": pred_keys.get(r.name),
                 })
 
             result_data = {
