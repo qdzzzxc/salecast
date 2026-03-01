@@ -153,6 +153,64 @@ def get_panels_data(project_id: str, ids: list[str]) -> list[dict]:
     return _run(_get_panels_data(project_id, ids))
 
 
+async def _run_forecast(
+    project_id: str,
+    model_name: str,
+    horizon: int,
+    panel_ids: list[str],
+) -> dict[str, Any]:
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{_API_URL}/projects/{project_id}/run_forecast",
+            json={"model_name": model_name, "horizon": horizon, "panel_ids": panel_ids},
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def run_forecast(
+    project_id: str,
+    model_name: str,
+    horizon: int,
+    panel_ids: list[str],
+) -> dict[str, Any]:
+    return _run(_run_forecast(project_id, model_name, horizon, panel_ids))
+
+
+async def _get_forecast_data(
+    project_id: str,
+    panel_ids: list[str] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    params: dict = {}
+    if panel_ids:
+        params["panel_ids"] = ",".join(panel_ids)
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            f"{_API_URL}/projects/{project_id}/forecast_data",
+            params=params,
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_forecast_data(
+    project_id: str,
+    panel_ids: list[str] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    return _run(_get_forecast_data(project_id, panel_ids))
+
+
+async def _get_forecast_csv_bytes(project_id: str) -> bytes:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{_API_URL}/projects/{project_id}/forecast_csv") as resp:
+            resp.raise_for_status()
+            return await resp.read()
+
+
+def get_forecast_csv_bytes(project_id: str) -> bytes:
+    return _run(_get_forecast_csv_bytes(project_id))
+
+
 async def _get_automl_predictions(
     project_id: str,
     panel_ids: list[str],
