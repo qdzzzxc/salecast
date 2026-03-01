@@ -3,7 +3,13 @@ import time
 import plotly.graph_objects as go
 import streamlit as st
 
-from app.api_client import get_forecast_csv_bytes, get_forecast_data, get_job, get_panels_data, run_forecast
+from app.api_client import (
+    get_forecast_csv_bytes,
+    get_forecast_data,
+    get_job,
+    get_panels_data,
+    run_forecast,
+)
 from app.state import get_current_project
 
 _HISTORY_COLOR = "#7C6AF7"
