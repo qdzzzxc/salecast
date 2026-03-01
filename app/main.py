@@ -3,13 +3,14 @@ from pathlib import Path
 import streamlit as st
 
 from app.api_client import create_project, delete_project, list_projects
-from app.pages import quality, upload
+from app.views import quality, upload
 from app.state import get_current_project, init_state, set_page, set_project
 
 _EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 _DEMO_PROJECTS = [
     ("Demo: Базовый", "gui_data_example.csv"),
     ("Demo: С фильтрацией", "gui_data_example_with_filtration.csv"),
+    ("Demo: Store Item Demand (Kaggle)", "store_item_demand.csv"),
 ]
 
 
@@ -32,6 +33,7 @@ def _ensure_demo_projects() -> None:
                         value_col="sales",
                     )
         st.session_state["demo_initialized"] = True
+        st.rerun()
     except Exception:
         pass  # API ещё не готов — попробуем при следующем рендере
 
@@ -53,6 +55,7 @@ def _render_sidebar() -> None:
         st.divider()
 
         if st.button("＋ Новый проект", use_container_width=True, type="primary"):
+            st.session_state.current_project = None
             set_page("upload")
             st.rerun()
 

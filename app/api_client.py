@@ -71,6 +71,32 @@ def get_job(job_id: str) -> dict[str, Any]:
     return _run(_get_job(job_id))
 
 
+async def _get_project_preview(project_id: str) -> dict[str, Any]:
+    """Получает статистику по сырым панелям проекта."""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{_API_URL}/projects/{project_id}/preview") as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_project_preview(project_id: str) -> dict[str, Any]:
+    """Получает превью проекта (синхронная обёртка)."""
+    return _run(_get_project_preview(project_id))
+
+
+async def _run_project(project_id: str) -> dict[str, Any]:
+    """Запускает обработку проекта через API."""
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f"{_API_URL}/projects/{project_id}/run") as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def run_project(project_id: str) -> dict[str, Any]:
+    """Запускает обработку проекта (синхронная обёртка)."""
+    return _run(_run_project(project_id))
+
+
 async def _delete_project(project_id: str) -> None:
     """Удаляет проект через API."""
     async with aiohttp.ClientSession() as session:
