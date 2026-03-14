@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from api.database import get_db
 from api.models import Job, Project
-from api.routers.projects import _to_job_schema, JobSchema
+from api.routers.projects import JobSchema, _to_job_schema
 
 router = APIRouter(prefix="/projects", tags=["automl"])
 
@@ -47,9 +47,10 @@ def _load_model_predictions(key: str, panel_ids: set[str]) -> dict[str, list[dic
         result: dict[str, list[dict]] = {}
         for panel_id, group in df.groupby("panel_id"):
             result[str(panel_id)] = group[["date", "y_pred", "split"]].to_dict("records")
-        return result
     except Exception:
         return {}
+    else:
+        return result
 
 
 async def _get_redis():
@@ -57,6 +58,28 @@ async def _get_redis():
     return aioredis.Redis(
         host=_redis_host, port=_redis_port, password=_redis_password, decode_responses=True
     )
+
+
+class SkipModelRequest(BaseModel):
+    """Запрос на пропуск текущей модели."""
+
+    job_id: str
+    model_name: str
+
+
+@router.post("/{project_id}/skip_model")
+async def skip_model(
+    project_id: uuid.UUID,
+    body: SkipModelRequest,
+) -> dict[str, str]:
+    """Устанавливает флаг отмены для текущей обучаемой модели."""
+    redis = await _get_redis()
+    try:
+        key = f"cancel:automl:{body.job_id}:{body.model_name}"
+        await redis.set(key, "1", ex=300)
+        return {"status": "ok"}
+    finally:
+        await redis.aclose()
 
 
 class AutoMLRunConfig(BaseModel):

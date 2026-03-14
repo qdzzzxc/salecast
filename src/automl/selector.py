@@ -2,6 +2,7 @@ import logging
 
 import pandas as pd
 
+from src.automl.base import BaseForecastModel
 from src.automl.config import AutoMLConfig
 from src.automl.models.catboost_model import CatBoostForecastModel
 from src.automl.models.seasonal_naive_model import SeasonalNaiveForecastModel
@@ -83,7 +84,7 @@ class ModelSelector:
 def _build_model(
     model_type: ModelType,
     catboost_params: CatBoostParameters | None = None,
-) -> SeasonalNaiveForecastModel | CatBoostForecastModel | StatsForecastModel:
+) -> BaseForecastModel:
     """Создаёт модель по типу."""
     if model_type == "seasonal_naive":
         return SeasonalNaiveForecastModel()

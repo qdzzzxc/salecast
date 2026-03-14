@@ -4,7 +4,14 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from app.api_client import get_automl_predictions, get_automl_progress, get_job, get_panels_data, run_automl
+from app.api_client import (
+    get_automl_predictions,
+    get_automl_progress,
+    get_job,
+    get_panels_data,
+    run_automl,
+    skip_model,
+)
 from app.state import get_current_project
 
 _ALL_MODELS = ["seasonal_naive", "catboost", "autoarima", "autoets", "autotheta"]
@@ -61,8 +68,20 @@ def _render_progress(project_id: str, job_id: str, models: list[str]) -> bool:
         return False
 
     done_models = {e["model"] for e in events if e.get("type") == "model_done"}
-    current_model = next((e["model"] for e in reversed(events) if e.get("type") == "model_start"), None)
-    n_done = len(done_models)
+    skipped_models = {e["model"] for e in events if e.get("type") in ("model_skipped", "model_timeout")}
+    finished_models = done_models | skipped_models
+    current_model = next(
+        (e["model"] for e in reversed(events) if e.get("type") == "model_start" and e["model"] not in finished_models),
+        None,
+    )
+
+    # Последнее progress-сообщение для текущей модели
+    last_progress = next(
+        (e for e in reversed(events) if e.get("type") == "model_progress" and e.get("model") == current_model),
+        None,
+    )
+
+    n_done = len(finished_models)
     n_total = len(models)
     pct = int(n_done / n_total * 100) if n_total else 0
 
@@ -73,8 +92,27 @@ def _render_progress(project_id: str, job_id: str, models: list[str]) -> bool:
             metric_event = next((e for e in events if e.get("type") == "model_done" and e.get("model") == model), {})
             metric_val = next((v for k, v in metric_event.items() if k.startswith("val_")), "")
             st.markdown(f"✅ {label}" + (f" — val: {metric_val}" if metric_val else ""))
+        elif model in skipped_models:
+            timeout = any(e.get("type") == "model_timeout" and e.get("model") == model for e in events)
+            st.markdown(f"{'⏱' if timeout else '⏭'} {label} — {'таймаут' if timeout else 'пропущено'}")
         elif model == current_model:
-            st.markdown(f"⏳ {label}")
+            progress_msg = last_progress.get("message", "") if last_progress else ""
+            progress_pct_str = last_progress.get("pct") if last_progress else None
+            progress_pct = float(progress_pct_str) if progress_pct_str else None
+
+            col_status, col_skip = st.columns([5, 1])
+            with col_status:
+                suffix = f" — {progress_msg}" if progress_msg else ""
+                if progress_pct is not None:
+                    st.progress(int(progress_pct) / 100, text=f"⏳ {label}{suffix}")
+                else:
+                    st.markdown(f"⏳ {label}{suffix}")
+            with col_skip:
+                if st.button("Пропустить", key=f"skip_{model}", use_container_width=True):
+                    try:
+                        skip_model(project_id, job_id, model)
+                    except Exception:
+                        pass
         else:
             st.markdown(f"⬜ {label}")
 
@@ -117,14 +155,15 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
 
     # Сводная таблица моделей
     st.markdown("**Сравнение моделей**")
-    summary_rows = []
-    for mr in sorted_mrs:
-        summary_rows.append({
+    summary_rows = [
+        {
             "Модель": _MODEL_LABELS.get(mr["name"], mr["name"]),
             f"Val {metric.upper()}": round(mr.get(f"val_{metric}", float("inf")), 4),
             f"Test {metric.upper()}": round(mr.get(f"test_{metric}", float("inf")), 4),
             "Лучшая": "⭐" if mr["name"] == best_model else "",
-        })
+        }
+        for mr in sorted_mrs
+    ]
     st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
 
     # Таблица по панелям для лучшей модели
