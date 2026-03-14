@@ -112,18 +112,33 @@ def delete_project(project_id: str) -> None:
     _run(_delete_project(project_id))
 
 
-async def _run_automl(project_id: str, models: list[str], selection_metric: str, use_hyperopt: bool) -> dict[str, Any]:
+async def _run_automl(
+    project_id: str,
+    models: list[str],
+    selection_metric: str,
+    use_hyperopt: bool,
+    freq: str | None = None,
+) -> dict[str, Any]:
+    payload: dict = {"models": models, "selection_metric": selection_metric, "use_hyperopt": use_hyperopt}
+    if freq is not None:
+        payload["freq"] = freq
     async with aiohttp.ClientSession() as session:
         async with session.post(
             f"{_API_URL}/projects/{project_id}/run_automl",
-            json={"models": models, "selection_metric": selection_metric, "use_hyperopt": use_hyperopt},
+            json=payload,
         ) as resp:
             resp.raise_for_status()
             return await resp.json()
 
 
-def run_automl(project_id: str, models: list[str], selection_metric: str, use_hyperopt: bool) -> dict[str, Any]:
-    return _run(_run_automl(project_id, models, selection_metric, use_hyperopt))
+def run_automl(
+    project_id: str,
+    models: list[str],
+    selection_metric: str,
+    use_hyperopt: bool,
+    freq: str | None = None,
+) -> dict[str, Any]:
+    return _run(_run_automl(project_id, models, selection_metric, use_hyperopt, freq))
 
 
 async def _get_automl_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:

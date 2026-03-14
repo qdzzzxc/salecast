@@ -8,6 +8,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from celery_app import celery
+from src.automl.ts_utils import infer_ts_config
 from src.configs.settings import FiltrationConfig, Settings
 from src.diagnostics import run_diagnostics
 from src.filtration import filter_time_series
@@ -129,6 +130,8 @@ def run_preprocessing(
             df = pd.read_csv(io.BytesIO(csv_bytes))
             df[date_col] = pd.to_datetime(df[date_col])
             logger.info("Загружен CSV: %d строк, колонки: %s", len(df), list(df.columns))
+            ts_config = infer_ts_config(df, date_col)
+            logger.info("Инференс частоты: freq=%s season_length=%d", ts_config.freq, ts_config.season_length)
 
             # --- Фильтрация ---
             _add_step(session, job, "filtration", "Фильтрация временных рядов")
@@ -183,6 +186,10 @@ def run_preprocessing(
             _upload_csv(test_key, splits.test)
 
             result = {
+                "ts": {
+                    "freq": ts_config.freq,
+                    "season_length": ts_config.season_length,
+                },
                 "filtration": {
                     "total_before": df[panel_col].nunique(),
                     "total_after": filtration_result.df[panel_col].nunique(),

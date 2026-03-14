@@ -15,6 +15,15 @@ from app.api_client import (
 from app.state import get_current_project
 
 _ALL_MODELS = ["seasonal_naive", "catboost", "autoarima", "autoets", "autotheta"]
+
+_FREQ_LABELS: dict[str, str] = {
+    "D": "Дневная", "B": "Рабочие дни",
+    "W": "Недельная",
+    "MS": "Месячная", "ME": "Месячная", "M": "Месячная",
+    "QS": "Квартальная", "Q": "Квартальная",
+    "A": "Годовая", "AS": "Годовая",
+}
+_FREQ_SEASON: dict[str, int] = {"D": 7, "W": 52, "MS": 12, "QS": 4}
 _MODEL_LABELS = {
     "seasonal_naive": "Seasonal Naive",
     "catboost": "CatBoost",
@@ -142,7 +151,16 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
     all_model_names = [mr["name"] for mr in sorted_mrs]
     default_model_names = [mr["name"] for mr in sorted_mrs[:3]]
 
-    st.success(f"Лучшая модель: **{_MODEL_LABELS.get(best_model, best_model)}**")
+    ts_info = automl_result.get("ts") or {}
+    ts_freq = ts_info.get("freq", "MS")
+    ts_season = ts_info.get("season_length", 12)
+    ts_source = ts_info.get("freq_source", "auto")
+    freq_label = _FREQ_LABELS.get(ts_freq, ts_freq)
+    source_label = "авто" if ts_source == "auto" else "задана вручную"
+    col_best, col_ts1, col_ts2 = st.columns(3)
+    col_best.success(f"Лучшая модель: **{_MODEL_LABELS.get(best_model, best_model)}**")
+    col_ts1.metric("Частота данных", f"{freq_label} ({ts_freq})", help=f"Источник: {source_label}")
+    col_ts2.metric("Сезонный период", ts_season, help="Используется в SeasonalNaive и StatsModels")
 
     # Глобальный селектор моделей — применяется ко всем графикам на странице
     selected_models = st.multiselect(
@@ -365,7 +383,24 @@ def render() -> None:
     # Если идёт polling — показываем прогресс
     if "automl_job_id" in st.session_state:
         job_id = st.session_state.automl_job_id
-        models = st.session_state.get("automl_models", ["seasonal_naive", "catboost"])
+        models = st.session_state.get("automl_models")
+        if not models:
+            # Восстанавливаем список моделей из событий прогресса (при возврате в проект)
+            try:
+                events = get_automl_progress(project_id, job_id)
+                started = [e["model"] for e in events if e.get("type") == "model_start"]
+                # total из первого события model_start содержит общее кол-во моделей,
+                # но сами модели проще взять из шагов job'а
+                job_data = get_job(job_id)
+                step_models = [
+                    s["name"].removeprefix("train_")
+                    for s in (job_data.get("steps") or [])
+                    if s.get("name", "").startswith("train_")
+                ]
+                models = list(dict.fromkeys(started + step_models)) or ["seasonal_naive", "catboost"]
+                st.session_state["automl_models"] = models
+            except Exception:
+                models = ["seasonal_naive", "catboost"]
         st.markdown("**Обучение моделей...**")
         done = _render_progress(project_id, job_id, models)
         if done:
@@ -383,6 +418,23 @@ def render() -> None:
     # Конфигурация и кнопка запуска
     selected_models, metric, use_hyperopt = _render_config()
 
+    # Частота — из override на экране качества или из preprocessing result
+    ts_from_prep = result.get("ts") or {}
+    freq_override = st.session_state.get(f"freq_override_{project_id}")
+    prep_freq = ts_from_prep.get("freq")
+    effective_freq: str | None = freq_override if freq_override else prep_freq
+    if prep_freq:
+        prep_season = ts_from_prep.get("season_length", 12)
+        effective_season = _FREQ_SEASON.get(effective_freq or prep_freq, prep_season)
+        freq_lbl = _FREQ_LABELS.get(effective_freq or prep_freq, effective_freq or prep_freq)
+        col_f1, col_f2 = st.columns([2, 1])
+        col_f1.metric("Частота данных", f"{freq_lbl} ({effective_freq or prep_freq})")
+        col_f2.metric("Сезонный период", effective_season)
+        if freq_override and freq_override != prep_freq:
+            st.caption(f"Автоопределено: {_FREQ_LABELS.get(prep_freq, prep_freq)} ({prep_freq}) — изменить на экране «Качество данных»")
+        else:
+            st.caption("Изменить на экране «Качество данных»")
+
     st.divider()
     if not selected_models:
         st.warning("Выберите хотя бы одну модель")
@@ -391,7 +443,7 @@ def render() -> None:
     if st.button("▶ Запустить AutoML", type="primary", use_container_width=True):
         with st.spinner("Запускаю..."):
             try:
-                job = run_automl(project_id, selected_models, metric, use_hyperopt)
+                job = run_automl(project_id, selected_models, metric, use_hyperopt, effective_freq)
             except Exception as e:
                 st.error(f"Ошибка запуска: {e}")
                 return
