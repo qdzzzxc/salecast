@@ -311,7 +311,7 @@ def run_automl(
             ]
 
             result_data = {
-                "split": prep_job.result["split"],
+                **prep_job.result,
                 "automl": {
                     "models_used": models,
                     "selection_metric": selection_metric,
