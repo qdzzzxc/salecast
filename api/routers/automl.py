@@ -82,13 +82,24 @@ async def skip_model(
         await redis.aclose()
 
 
+class CatBoostRunParams(BaseModel):
+    """Параметры CatBoost для запуска AutoML."""
+
+    iterations: int = 1000
+    learning_rate: float = 0.03
+    depth: int = 6
+
+
 class AutoMLRunConfig(BaseModel):
     """Конфигурация запуска AutoML."""
 
     models: list[str] = ["seasonal_naive", "catboost"]
     selection_metric: str = "mape"
     use_hyperopt: bool = False
+    n_trials: int = 30
     freq: str | None = None  # None = автоопределение из данных
+    catboost_params: CatBoostRunParams = CatBoostRunParams()
+    autoarima_approximation: bool = True
 
 
 @router.post("/{project_id}/run_automl", response_model=JobSchema)
@@ -132,6 +143,9 @@ async def run_automl(
         config.selection_metric,
         config.use_hyperopt,
         config.freq,
+        config.n_trials,
+        config.catboost_params.model_dump(),
+        config.autoarima_approximation,
     )
 
     return _to_job_schema(job)

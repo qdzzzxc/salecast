@@ -3,6 +3,7 @@ import time
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import yaml
 
 from app.api_client import (
     get_automl_predictions,
@@ -45,8 +46,25 @@ _VAL_COLOR = "rgba(255, 180, 50, 0.2)"
 _TEST_COLOR = "rgba(229, 100, 100, 0.2)"
 
 
-def _render_config() -> tuple[list[str], str, bool]:
-    """Конфигурация AutoML. Возвращает (models, metric, use_hyperopt)."""
+def _render_config() -> dict:
+    """Конфигурация AutoML. Возвращает словарь параметров для API."""
+    col_up, col_down = st.columns(2)
+    with col_up:
+        uploaded = st.file_uploader("Загрузить конфиг (YAML)", type=["yaml", "yml"], key="config_upload")
+        if uploaded:
+            cfg = yaml.safe_load(uploaded.read())
+            st.session_state["automl_metric"] = cfg.get("selection_metric", "mape")
+            st.session_state["automl_hyperopt"] = cfg.get("use_hyperopt", False)
+            st.session_state["automl_n_trials"] = cfg.get("n_trials", 30)
+            for model in _ALL_MODELS:
+                st.session_state[f"model_{model}"] = model in cfg.get("models", [])
+            cb = cfg.get("catboost_params") or {}
+            st.session_state["cb_iterations"] = cb.get("iterations", 1000)
+            st.session_state["cb_lr"] = cb.get("learning_rate", 0.03)
+            st.session_state["cb_depth"] = cb.get("depth", 6)
+            st.session_state["autoarima_approx"] = cfg.get("autoarima_approximation", True)
+            st.rerun()
+
     st.markdown("**Модели**")
     cols = st.columns(len(_ALL_MODELS))
     selected = []
@@ -56,15 +74,63 @@ def _render_config() -> tuple[list[str], str, bool]:
             if st.checkbox(_MODEL_LABELS[model], value=model in defaults, key=f"model_{model}"):
                 selected.append(model)
 
+    cb_iterations = 1000
+    cb_lr = 0.03
+    cb_depth = 6
+    if "catboost" in selected:
+        with st.expander("Настройки CatBoost"):
+            cb_iterations = st.number_input(
+                "iterations", min_value=50, max_value=5000, step=50,
+                value=st.session_state.get("cb_iterations", 1000), key="cb_iterations",
+            )
+            cb_lr = st.number_input(
+                "learning_rate", min_value=0.001, max_value=1.0, step=0.005, format="%.3f",
+                value=st.session_state.get("cb_lr", 0.03), key="cb_lr",
+            )
+            cb_depth = st.number_input(
+                "depth", min_value=2, max_value=12, step=1,
+                value=st.session_state.get("cb_depth", 6), key="cb_depth",
+            )
+            st.caption("При hyperopt=True Optuna перезапишет эти параметры")
+
+    autoarima_approx = True
+    if "autoarima" in selected:
+        with st.expander("Настройки AutoARIMA"):
+            autoarima_approx = st.checkbox(
+                "Быстрый режим (approximation)",
+                value=st.session_state.get("autoarima_approx", True),
+                key="autoarima_approx",
+                help="approximation=True ускоряет подбор порядков ARIMA, рекомендуется для больших датасетов",
+            )
+
     col1, col2 = st.columns(2)
     with col1:
         metric = st.selectbox("Метрика отбора", _METRICS, key="automl_metric")
     with col2:
         use_hyperopt = st.toggle("Hyperopt (Optuna)", value=False, key="automl_hyperopt")
-        if use_hyperopt:
-            st.caption("Значительно увеличивает время обучения CatBoost")
 
-    return selected, metric, use_hyperopt
+    n_trials = 30
+    if use_hyperopt:
+        n_trials = st.number_input(
+            "n_trials", min_value=5, max_value=500, step=5,
+            value=st.session_state.get("automl_n_trials", 30), key="automl_n_trials",
+        )
+        st.caption("Значительно увеличивает время обучения CatBoost")
+
+    config_dict = {
+        "models": selected,
+        "selection_metric": metric,
+        "use_hyperopt": use_hyperopt,
+        "n_trials": int(n_trials),
+        "catboost_params": {"iterations": int(cb_iterations), "learning_rate": float(cb_lr), "depth": int(cb_depth)},
+        "autoarima_approximation": bool(autoarima_approx),
+    }
+
+    with col_down:
+        yaml_bytes = yaml.dump(config_dict, allow_unicode=True, default_flow_style=False).encode()
+        st.download_button("Скачать конфиг (YAML)", yaml_bytes, "automl_config.yaml", "text/yaml")
+
+    return config_dict
 
 
 def _render_progress(project_id: str, job_id: str, models: list[str]) -> bool:
@@ -416,7 +482,7 @@ def render() -> None:
         return
 
     # Конфигурация и кнопка запуска
-    selected_models, metric, use_hyperopt = _render_config()
+    cfg = _render_config()
 
     # Частота — из override на экране качества или из preprocessing result
     ts_from_prep = result.get("ts") or {}
@@ -436,17 +502,26 @@ def render() -> None:
             st.caption("Изменить на экране «Качество данных»")
 
     st.divider()
-    if not selected_models:
+    if not cfg["models"]:
         st.warning("Выберите хотя бы одну модель")
         return
 
     if st.button("▶ Запустить AutoML", type="primary", use_container_width=True):
         with st.spinner("Запускаю..."):
             try:
-                job = run_automl(project_id, selected_models, metric, use_hyperopt, effective_freq)
+                job = run_automl(
+                    project_id,
+                    models=cfg["models"],
+                    selection_metric=cfg["selection_metric"],
+                    use_hyperopt=cfg["use_hyperopt"],
+                    freq=effective_freq,
+                    n_trials=cfg["n_trials"],
+                    catboost_params=cfg["catboost_params"],
+                    autoarima_approximation=cfg["autoarima_approximation"],
+                )
             except Exception as e:
                 st.error(f"Ошибка запуска: {e}")
                 return
         st.session_state.automl_job_id = str(job["id"])
-        st.session_state.automl_models = selected_models
+        st.session_state.automl_models = cfg["models"]
         st.rerun()

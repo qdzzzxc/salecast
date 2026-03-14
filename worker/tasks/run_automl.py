@@ -10,11 +10,12 @@ from sqlalchemy.orm import Session
 
 from celery_app import celery
 from src.automl.base import ModelCancelledError
+from src.automl.hyperopt import tune_catboost
 from src.automl.models import CatBoostForecastModel, SeasonalNaiveForecastModel, StatsForecastModel
 from src.automl.selector import _get_metric_value
 from src.automl.ts_utils import get_downstream_lags, infer_ts_config, ts_config_from_freq
 from src.configs.settings import ColumnConfig, Settings
-from src.custom_types import ModelType, Splits
+from src.custom_types import CatBoostParameters, ModelType, Splits
 
 logger = logging.getLogger(__name__)
 
@@ -105,11 +106,19 @@ def _add_step(session: Session, job, name: str, message: str) -> None:
     job.steps = steps
 
 
-def _build_model(model_type: ModelType):
+def _build_model(
+    model_type: ModelType,
+    catboost_params: dict | None = None,
+    autoarima_approximation: bool = True,
+):
+    """Создаёт модель заданного типа с переданными параметрами."""
     if model_type == "seasonal_naive":
         return SeasonalNaiveForecastModel()
     if model_type == "catboost":
-        return CatBoostForecastModel()
+        params = CatBoostParameters(**(catboost_params or {}))
+        return CatBoostForecastModel(params=params)
+    if model_type == "autoarima":
+        return StatsForecastModel(model_type=model_type, approximation=autoarima_approximation)
     return StatsForecastModel(model_type=model_type)
 
 
@@ -155,6 +164,9 @@ def run_automl(
     selection_metric: str,
     use_hyperopt: bool,
     freq: str | None = None,
+    n_trials: int = 30,
+    catboost_params: dict | None = None,
+    autoarima_approximation: bool = True,
 ) -> dict:
     """Запускает AutoML: обучает модели на отфильтрованных панелях, выбирает лучшую."""
     from api.models import Job
@@ -207,6 +219,18 @@ def run_automl(
                 }
             )
 
+            if use_hyperopt and "catboost" in models:
+                _add_step(session, job, "hyperopt", f"Hyperopt CatBoost ({n_trials} trials)")
+                redis_client.xadd(stream_key, {"type": "hyperopt_start", "n_trials": str(n_trials)})
+                try:
+                    best_cb_params = tune_catboost(splits, settings, n_trials=n_trials)
+                    catboost_params = best_cb_params.model_dump()
+                    redis_client.xadd(stream_key, {"type": "hyperopt_done"})
+                    logger.info("Hyperopt завершён: %s", catboost_params)
+                except Exception:
+                    logger.exception("Hyperopt завершился с ошибкой, используем дефолтные параметры")
+                    redis_client.xadd(stream_key, {"type": "hyperopt_failed"})
+
             all_results = []
             for i, model_type in enumerate(models):
                 _add_step(session, job, f"train_{model_type}", f"Обучение {model_type} ({i + 1}/{len(models)})")
@@ -217,7 +241,7 @@ def run_automl(
                     "total": str(len(models)),
                 })
 
-                model = _build_model(model_type)
+                model = _build_model(model_type, catboost_params, autoarima_approximation)
 
                 cancel_key = f"cancel:automl:{job_id}:{model_type}"
 
