@@ -211,6 +211,21 @@ def get_forecast_csv_bytes(project_id: str) -> bytes:
     return _run(_get_forecast_csv_bytes(project_id))
 
 
+async def _skip_model(project_id: str, job_id: str, model_name: str) -> dict[str, str]:
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{_API_URL}/projects/{project_id}/skip_model",
+            json={"job_id": job_id, "model_name": model_name},
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def skip_model(project_id: str, job_id: str, model_name: str) -> dict[str, str]:
+    """Отмечает текущую обучаемую модель как пропущенную (синхронная обёртка)."""
+    return _run(_skip_model(project_id, job_id, model_name))
+
+
 async def _get_automl_predictions(
     project_id: str,
     panel_ids: list[str],

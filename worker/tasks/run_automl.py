@@ -1,3 +1,4 @@
+import concurrent.futures
 import io
 import logging
 import os
@@ -8,11 +9,11 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from celery_app import celery
-from src.automl.config import AutoMLConfig
+from src.automl.base import ModelCancelledError
 from src.automl.models import CatBoostForecastModel, SeasonalNaiveForecastModel, StatsForecastModel
 from src.automl.selector import _get_metric_value
 from src.configs.settings import ColumnConfig, Settings
-from src.custom_types import MetricType, ModelType, Splits
+from src.custom_types import ModelType, Splits
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +204,32 @@ def run_automl(
                 })
 
                 model = _build_model(model_type)
-                result = model.fit_evaluate(splits, settings)
+
+                cancel_key = f"cancel:automl:{job_id}:{model_type}"
+
+                def _progress_fn(message: str, pct: float | None = None, _mt: str = model_type) -> None:
+                    payload: dict = {"type": "model_progress", "model": _mt, "message": message}
+                    if pct is not None:
+                        payload["pct"] = f"{pct:.1f}"
+                    redis_client.xadd(stream_key, payload)
+
+                def _cancel_fn(_key: str = cancel_key) -> bool:
+                    return bool(redis_client.get(_key))
+
+                try:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(
+                            model.fit_evaluate, splits, settings, _progress_fn, _cancel_fn
+                        )
+                        result = future.result(timeout=300)
+                except ModelCancelledError:
+                    logger.info("Модель %s пропущена пользователем", model_type)
+                    redis_client.xadd(stream_key, {"type": "model_skipped", "model": model_type})
+                    continue
+                except concurrent.futures.TimeoutError:
+                    logger.error("Модель %s превысила таймаут (300s), пропускаем", model_type)
+                    redis_client.xadd(stream_key, {"type": "model_timeout", "model": model_type})
+                    continue
                 all_results.append(result)
 
                 # Сохраняем предсказания (val + test) в MinIO
@@ -235,15 +261,16 @@ def run_automl(
 
             pred_keys = {r.name: f"projects/{project_id}/automl_predictions/{r.name}.csv" for r in all_results}
 
-            model_results = []
-            for r in all_results:
-                model_results.append({
+            model_results = [
+                {
                     "name": r.name,
                     f"val_{selection_metric}": _extract_metric(r, selection_metric, "val"),
                     f"test_{selection_metric}": _extract_metric(r, selection_metric, "test"),
                     "panel_metrics": _extract_panel_metrics(r, selection_metric),
                     "predictions_key": pred_keys.get(r.name),
-                })
+                }
+                for r in all_results
+            ]
 
             result_data = {
                 "split": prep_job.result["split"],
