@@ -6,7 +6,23 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from app.api_client import get_panels_data
-from app.state import get_current_project
+from app.state import get_current_project, set_page
+
+_FREQ_OPTIONS: dict[str, str | None] = {
+    "🔍 Авто (из данных)": None,
+    "📅 Дневная (D)": "D",
+    "📅 Недельная (W)": "W",
+    "📅 Месячная (MS)": "MS",
+    "📅 Квартальная (QS)": "QS",
+}
+_FREQ_SEASON: dict[str, int] = {"D": 7, "W": 52, "MS": 12, "QS": 4}
+_FREQ_LABELS: dict[str, str] = {
+    "D": "Дневная", "B": "Рабочие дни",
+    "W": "Недельная",
+    "MS": "Месячная", "ME": "Месячная", "M": "Месячная",
+    "QS": "Квартальная", "Q": "Квартальная",
+    "A": "Годовая", "AS": "Годовая",
+}
 
 _STATUS_EMOJI = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
 _CHECK_NAMES = {
@@ -102,6 +118,32 @@ def _render_filtration_steps(steps: dict, filtered_samples: dict, project_id: st
                         st.error(f"Ошибка загрузки: {e}")
             if st.session_state.get(key):
                 _render_panel_charts(st.session_state[key])
+
+
+def _render_ts_config(ts: dict, project_id: str) -> None:
+    """Показывает определённую частоту ряда с возможностью переопределить."""
+    freq_auto = ts.get("freq", "MS")
+    season_auto = ts.get("season_length", 12)
+    freq_sel_key = f"freq_sel_{project_id}"
+    override_key = f"freq_override_{project_id}"
+
+    # Streamlit обновляет session_state[widget_key] ДО начала рендера при изменении виджета,
+    # поэтому читаем значение selectbox напрямую — метрики уже отражают текущий выбор
+    sel_label = st.session_state.get(freq_sel_key, list(_FREQ_OPTIONS.keys())[0])
+    current_override = _FREQ_OPTIONS.get(sel_label)  # None если "Авто"
+    st.session_state[override_key] = current_override  # синхронизируем для automl.py
+
+    effective_freq = current_override if current_override else freq_auto
+    effective_season = _FREQ_SEASON.get(effective_freq, season_auto)
+    freq_label = _FREQ_LABELS.get(effective_freq, effective_freq)
+
+    col_f1, col_f2, col_f3 = st.columns([2, 1, 3])
+    col_f1.metric("Частота данных", f"{freq_label} ({effective_freq})")
+    col_f2.metric("Сезонный период", effective_season)
+    with col_f3:
+        st.selectbox("Переопределить частоту", options=list(_FREQ_OPTIONS.keys()), key=freq_sel_key)
+        if current_override and current_override != freq_auto:
+            st.caption(f"Автоопределено: {_FREQ_LABELS.get(freq_auto, freq_auto)} ({freq_auto}), период: {season_auto}")
 
 
 _TRAIN_COLOR = "rgba(99, 149, 230, 0.15)"
@@ -210,6 +252,7 @@ def render() -> None:
     split = result.get("split", {})
     val_periods = split.get("val_periods", 0)
     test_periods = split.get("test_periods", 0)
+    project_id = str(project.get("project_id", ""))
 
     st.title("Качество данных")
 
@@ -219,6 +262,11 @@ def render() -> None:
         total_before=filtration.get("total_before", 0),
         total_after=filtration.get("total_after", 0),
     )
+
+    ts = result.get("ts")
+    if ts:
+        st.divider()
+        _render_ts_config(ts, project_id)
 
     st.divider()
     col_left, col_right = st.columns([1, 2])

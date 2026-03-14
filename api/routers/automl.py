@@ -88,6 +88,7 @@ class AutoMLRunConfig(BaseModel):
     models: list[str] = ["seasonal_naive", "catboost"]
     selection_metric: str = "mape"
     use_hyperopt: bool = False
+    freq: str | None = None  # None = автоопределение из данных
 
 
 @router.post("/{project_id}/run_automl", response_model=JobSchema)
@@ -130,6 +131,7 @@ async def run_automl(
         config.models,
         config.selection_metric,
         config.use_hyperopt,
+        config.freq,
     )
 
     return _to_job_schema(job)

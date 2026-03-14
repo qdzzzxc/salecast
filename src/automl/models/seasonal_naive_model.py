@@ -19,8 +19,8 @@ class SeasonalNaiveForecastModel(BaseForecastModel):
 
     name: str = "seasonal_naive"
 
-    def __init__(self, seasonal_period: int = 12) -> None:
-        """Инициализирует модель с заданным сезонным периодом."""
+    def __init__(self, seasonal_period: int | None = None) -> None:
+        """Инициализирует модель. seasonal_period=None → берётся из settings.ts.season_length."""
         self.seasonal_period = seasonal_period
 
     def fit_evaluate(
@@ -37,11 +37,12 @@ class SeasonalNaiveForecastModel(BaseForecastModel):
         if progress_fn:
             progress_fn("обучение...", 50.0)
 
+        period = self.seasonal_period if self.seasonal_period is not None else settings.ts.season_length
         model = train_seasonal_naive(
             train_df=splits.train,
             val_df=splits.val,
             settings=settings,
-            seasonal_period=self.seasonal_period,
+            seasonal_period=period,
         )
         evaluation = evaluate_seasonal_naive(model, splits, settings)
 

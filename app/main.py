@@ -110,6 +110,20 @@ def _render_sidebar() -> None:
                                 set_page("automl")
                             else:
                                 set_page("quality")
+                        elif job.get("status") in ("running", "pending"):
+                            # Job ещё выполняется — восстанавливаем состояние
+                            job_id = str(job["id"])
+                            step_names = {s.get("name", "") for s in (job.get("steps") or [])}
+                            # Preprocessing имеет уникальные шаги; всё остальное — AutoML
+                            is_preprocessing = bool(step_names & {"filtration", "diagnostics"})
+                            if is_preprocessing:
+                                st.session_state["polling_job_id"] = job_id
+                                st.session_state.current_project = {**project, "project_id": project["id"], "result": {}}
+                                set_page("upload")
+                            else:
+                                st.session_state["automl_job_id"] = job_id
+                                st.session_state.current_project = {**project, "project_id": project["id"], "result": {}}
+                                set_page("automl")
                         else:
                             st.session_state.current_project = {**project}
                             set_page("upload")

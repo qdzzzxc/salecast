@@ -81,13 +81,16 @@ class StatsForecastModel(BaseForecastModel):
 
         splits_data: dict[str, tuple[pd.DataFrame, np.ndarray]] = {}
 
+        freq = settings.ts.freq
+        season_length = settings.ts.season_length
+
         if splits.val is not None:
             if progress_fn:
                 progress_fn("обучение на train...", 10.0)
             val_size = splits.val[date_col].nunique()
             sf_val = StatsForecast(
-                models=[_make_sf_model(self.model_type)],
-                freq="MS",
+                models=[_make_sf_model(self.model_type, season_length)],
+                freq=freq,
                 verbose=False,
             )
             train_sf = _to_sf_format(splits.train, id_col, date_col, target)
@@ -110,8 +113,8 @@ class StatsForecastModel(BaseForecastModel):
         test_size = splits.test[date_col].nunique()
         fit_df = splits.train if splits.val is None else pd.concat([splits.train, splits.val], ignore_index=True)
         sf_test = StatsForecast(
-            models=[_make_sf_model(self.model_type)],
-            freq="MS",
+            models=[_make_sf_model(self.model_type, season_length)],
+            freq=freq,
             verbose=False,
         )
         fit_sf = _to_sf_format(fit_df, id_col, date_col, target)

@@ -12,6 +12,7 @@ from celery_app import celery
 from src.automl.base import ModelCancelledError
 from src.automl.models import CatBoostForecastModel, SeasonalNaiveForecastModel, StatsForecastModel
 from src.automl.selector import _get_metric_value
+from src.automl.ts_utils import get_downstream_lags, infer_ts_config, ts_config_from_freq
 from src.configs.settings import ColumnConfig, Settings
 from src.custom_types import ModelType, Splits
 
@@ -153,6 +154,7 @@ def run_automl(
     models: list[str],
     selection_metric: str,
     use_hyperopt: bool,
+    freq: str | None = None,
 ) -> dict:
     """Запускает AutoML: обучает модели на отфильтрованных панелях, выбирает лучшую."""
     from api.models import Job
@@ -189,8 +191,20 @@ def run_automl(
             test_df[date_col] = pd.to_datetime(test_df[date_col])
 
             splits = Splits(train=train_df, val=val_df, test=test_df)
-            settings = Settings().model_copy(
-                update={"columns": ColumnConfig(id=panel_col, date=date_col, main_target=value_col)}
+
+            ts_config = ts_config_from_freq(freq) if freq else infer_ts_config(train_df, date_col)
+            lags = get_downstream_lags(ts_config.freq)
+            logger.info(
+                "AutoML: freq=%s season_length=%d lags=%s (источник: %s)",
+                ts_config.freq, ts_config.season_length, lags, "явно задан" if freq else "автоопределение",
+            )
+            base_settings = Settings()
+            settings = base_settings.model_copy(
+                update={
+                    "columns": ColumnConfig(id=panel_col, date=date_col, main_target=value_col),
+                    "ts": ts_config,
+                    "downstream": base_settings.downstream.model_copy(update={"lags": lags}),
+                }
             )
 
             all_results = []
@@ -280,6 +294,11 @@ def run_automl(
                     "best_model": best.name,
                     "total_panels": len(good_panels),
                     "model_results": model_results,
+                    "ts": {
+                        "freq": ts_config.freq,
+                        "season_length": ts_config.season_length,
+                        "freq_source": "manual" if freq else "auto",
+                    },
                 },
             }
 

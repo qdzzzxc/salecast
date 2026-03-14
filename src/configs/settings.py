@@ -51,6 +51,13 @@ class SplitConfig(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
 
+class TimeSeriesConfig(BaseModel):
+    """Конфигурация временного ряда."""
+
+    freq: str = Field(default="MS", description="Частота ряда (MS, D, W, Q и т.д.)")
+    season_length: int = Field(default=12, description="Длина сезонного периода")
+
+
 class DownstreamConfig(BaseModel):
     """Конфигурация downstream-модели."""
 
@@ -76,6 +83,9 @@ class Settings(BaseModel):
     )
     filtration: FiltrationConfig = FiltrationConfig()
 
+    ts: TimeSeriesConfig = Field(
+        default_factory=TimeSeriesConfig, description="Параметры временного ряда"
+    )
     random_state: int = Field(default=420, description="Seed для воспроизводимости")
     automl: AutoMLConfig = Field(
         default_factory=AutoMLConfig,

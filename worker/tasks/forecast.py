@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from celery_app import celery
+from src.automl.ts_utils import get_downstream_lags, infer_ts_config
 from src.configs.settings import ColumnConfig, Settings
 
 logger = logging.getLogger(__name__)
@@ -75,17 +76,13 @@ def _next_dates(dates: pd.Series, n: int) -> list[pd.Timestamp]:
     return [sorted_dates.iloc[-1] + delta * (i + 1) for i in range(n)]
 
 
-def _infer_freq(dates: pd.Series) -> str:
-    sorted_dates = pd.to_datetime(dates).sort_values().drop_duplicates()
-    return pd.infer_freq(sorted_dates) or "MS"
-
 
 def _forecast_seasonal_naive(
-    full_df: pd.DataFrame, panel_col: str, date_col: str, value_col: str, horizon: int
+    full_df: pd.DataFrame, panel_col: str, date_col: str, value_col: str, horizon: int, settings: Settings
 ) -> pd.DataFrame:
     from src.seasonal_naive_utilities.seasonal_naive_model import SeasonalNaiveModel
 
-    model = SeasonalNaiveModel()
+    model = SeasonalNaiveModel(seasonal_period=settings.ts.season_length)
     model.fit(full_df, panel_col, value_col)
 
     rows = []
@@ -108,18 +105,24 @@ def _forecast_statsmodels(
     date_col: str,
     value_col: str,
     horizon: int,
+    settings: Settings,
 ) -> pd.DataFrame:
     from statsforecast import StatsForecast
     from statsforecast.models import AutoARIMA, AutoETS, AutoTheta
 
-    _cls_map = {"autoarima": AutoARIMA, "autoets": AutoETS, "autotheta": AutoTheta}
-    freq = _infer_freq(full_df[date_col])
+    freq = settings.ts.freq
+    season_length = settings.ts.season_length
+    _cls_map = {
+        "autoarima": lambda: AutoARIMA(season_length=season_length, approximation=True, max_p=4, max_q=4, max_P=2, max_Q=2),
+        "autoets": lambda: AutoETS(season_length=season_length),
+        "autotheta": lambda: AutoTheta(season_length=season_length),
+    }
 
     sf_df = full_df.rename(columns={panel_col: "unique_id", date_col: "ds", value_col: "y"})
     sf_df["unique_id"] = sf_df["unique_id"].astype(str)
     sf_df["ds"] = pd.to_datetime(sf_df["ds"])
 
-    sf = StatsForecast(models=[_cls_map[model_type](season_length=12)], freq=freq, verbose=False)
+    sf = StatsForecast(models=[_cls_map[model_type]()], freq=freq, verbose=False)
     sf.fit(sf_df)
     forecast = sf.predict(h=horizon).reset_index()
 
@@ -226,16 +229,24 @@ def run_forecast(
             if panel_ids:
                 full_df = full_df[full_df[panel_col].astype(str).isin(set(panel_ids))]
 
-            settings = Settings().model_copy(
-                update={"columns": ColumnConfig(id=panel_col, date=date_col, main_target=value_col)}
+            ts_config = infer_ts_config(full_df, date_col)
+            lags = get_downstream_lags(ts_config.freq)
+            logger.info("Forecast: freq=%s, season_length=%d", ts_config.freq, ts_config.season_length)
+            base_settings = Settings()
+            settings = base_settings.model_copy(
+                update={
+                    "columns": ColumnConfig(id=panel_col, date=date_col, main_target=value_col),
+                    "ts": ts_config,
+                    "downstream": base_settings.downstream.model_copy(update={"lags": lags}),
+                }
             )
 
             _add_step(session, job, "forecasting", f"Прогноз {model_name} на {horizon} точек")
 
             if model_name == "seasonal_naive":
-                forecast_df = _forecast_seasonal_naive(full_df, panel_col, date_col, value_col, horizon)
+                forecast_df = _forecast_seasonal_naive(full_df, panel_col, date_col, value_col, horizon, settings)
             elif model_name in ("autoarima", "autoets", "autotheta"):
-                forecast_df = _forecast_statsmodels(full_df, model_name, panel_col, date_col, value_col, horizon)
+                forecast_df = _forecast_statsmodels(full_df, model_name, panel_col, date_col, value_col, horizon, settings)
             elif model_name == "catboost":
                 forecast_df = _forecast_catboost(full_df, panel_col, date_col, value_col, horizon, settings)
             else:
