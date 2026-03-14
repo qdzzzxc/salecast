@@ -21,15 +21,18 @@ _MODEL_COL_MAP = {
 }
 
 
-def _make_sf_model(model_type: StatsForecastModelType, season_length: int = 12):
+def _make_sf_model(
+    model_type: StatsForecastModelType,
+    season_length: int = 12,
+    approximation: bool = True,
+):
     """Создаёт экземпляр statsforecast модели по типу."""
     from statsforecast.models import AutoARIMA, AutoETS, AutoTheta
 
     if model_type == "autoarima":
-        # approximation=True и ограниченное пространство поиска — иначе зависает на больших датасетах
         return AutoARIMA(
             season_length=season_length,
-            approximation=True,
+            approximation=approximation,
             max_p=4,
             max_q=4,
             max_P=2,
@@ -51,10 +54,11 @@ class _EmptyParams(BaseModel):
 class StatsForecastModel(BaseForecastModel):
     """Модели StatsForecast: AutoARIMA, AutoETS, AutoTheta."""
 
-    def __init__(self, model_type: StatsForecastModelType) -> None:
+    def __init__(self, model_type: StatsForecastModelType, approximation: bool = True) -> None:
         """Инициализирует модель заданного типа."""
         self.model_type = model_type
         self.name = model_type
+        self.approximation = approximation
 
     def fit_evaluate(
         self,
@@ -89,7 +93,7 @@ class StatsForecastModel(BaseForecastModel):
                 progress_fn("обучение на train...", 10.0)
             val_size = splits.val[date_col].nunique()
             sf_val = StatsForecast(
-                models=[_make_sf_model(self.model_type, season_length)],
+                models=[_make_sf_model(self.model_type, season_length, self.approximation)],
                 freq=freq,
                 verbose=False,
             )
@@ -113,7 +117,7 @@ class StatsForecastModel(BaseForecastModel):
         test_size = splits.test[date_col].nunique()
         fit_df = splits.train if splits.val is None else pd.concat([splits.train, splits.val], ignore_index=True)
         sf_test = StatsForecast(
-            models=[_make_sf_model(self.model_type, season_length)],
+            models=[_make_sf_model(self.model_type, season_length, self.approximation)],
             freq=freq,
             verbose=False,
         )
