@@ -7,7 +7,7 @@ import pandas as pd
 from src.automl.base import BaseForecastModel, CancelFn, ModelCancelledError, ProgressFn
 from src.catboost_utilities.evaluate import evaluate_catboost
 from src.catboost_utilities.train import train_catboost
-from src.classifical_features import build_monthly_features
+from src.classifical_features import build_ts_features
 from src.configs.settings import Settings
 from src.custom_types import CatBoostParameters, ModelResult, Splits
 from src.data_processing import scale_panel_splits
@@ -73,7 +73,7 @@ class CatBoostForecastModel(BaseForecastModel):
             parts.append(splits.val.copy().assign(**{_SPLIT_COL: "val"}))
         parts.append(splits.test.copy().assign(**{_SPLIT_COL: "test"}))
 
-        full_features = build_monthly_features(
+        full_features = build_ts_features(
             pd.concat(parts, ignore_index=True), settings, disable_tqdm=True
         )
 
@@ -162,7 +162,7 @@ class CatBoostForecastModel(BaseForecastModel):
         date_col = forecast_settings.columns.date
         value_col = forecast_settings.columns.main_target
 
-        features_df = build_monthly_features(full_df, forecast_settings, disable_tqdm=True)
+        features_df = build_ts_features(full_df, forecast_settings, disable_tqdm=True)
         drop_cols = {value_col, panel_col, date_col}
         feature_cols = [c for c in features_df.columns if c not in drop_cols]
 
@@ -194,7 +194,7 @@ class CatBoostForecastModel(BaseForecastModel):
                 [running_df.assign(**{_FUTURE: False}), next_df],
                 ignore_index=True,
             )
-            feat = build_monthly_features(extended, forecast_settings, disable_tqdm=True)
+            feat = build_ts_features(extended, forecast_settings, disable_tqdm=True)
             future_feat = feat[feat[_FUTURE].fillna(False)][feature_cols].reset_index(drop=True)
             preds = np.maximum(model.predict(future_feat), 0)
 
@@ -245,7 +245,7 @@ class CatBoostPerPanelForecastModel(BaseForecastModel):
             parts.append(splits.val.copy().assign(**{_SPLIT_COL: "val"}))
         parts.append(splits.test.copy().assign(**{_SPLIT_COL: "test"}))
 
-        full_features = build_monthly_features(
+        full_features = build_ts_features(
             pd.concat(parts, ignore_index=True), settings, disable_tqdm=True
         )
 
@@ -363,7 +363,7 @@ class CatBoostPerPanelForecastModel(BaseForecastModel):
 
             panel_df = full_df[full_df[panel_col] == panel_id].copy()
 
-            features_df = build_monthly_features(panel_df, forecast_settings, disable_tqdm=True)
+            features_df = build_ts_features(panel_df, forecast_settings, disable_tqdm=True)
             drop_cols = {value_col, panel_col, date_col}
             feature_cols = [c for c in features_df.columns if c not in drop_cols]
 
@@ -386,7 +386,7 @@ class CatBoostPerPanelForecastModel(BaseForecastModel):
                     [running_df.assign(**{_FUTURE: False}), next_row],
                     ignore_index=True,
                 )
-                feat = build_monthly_features(extended, forecast_settings, disable_tqdm=True)
+                feat = build_ts_features(extended, forecast_settings, disable_tqdm=True)
                 future_feat = feat[feat[_FUTURE].fillna(False)][feature_cols].reset_index(drop=True)
                 pred = float(np.maximum(model.predict(future_feat)[0], 0))
 

@@ -87,6 +87,10 @@ def _render_config() -> dict:
     cb_iterations = 1000
     cb_lr = 0.03
     cb_depth = 6
+    use_trend = False
+    trend_window = 6
+    use_cdf = False
+    cdf_decay = 0.9
     if "catboost" in selected or "catboost_per_panel" in selected:
         with st.expander("Настройки CatBoost"):
             cb_iterations = st.number_input(
@@ -102,6 +106,32 @@ def _render_config() -> dict:
                 value=st.session_state.get("cb_depth", 6), key="cb_depth",
             )
             st.caption("При hyperopt=True Optuna перезапишет эти параметры")
+            st.markdown("**Расширенные признаки**")
+            col_f1, col_f2 = st.columns(2)
+            with col_f1:
+                use_trend = st.checkbox(
+                    "Тренд (наклон регрессии)",
+                    value=st.session_state.get("cb_use_trend", False),
+                    key="cb_use_trend",
+                    help="Добавляет признак — наклон линейной регрессии на скользящем окне",
+                )
+                if use_trend:
+                    trend_window = st.number_input(
+                        "Окно тренда", min_value=3, max_value=24, step=1,
+                        value=st.session_state.get("cb_trend_window", 6), key="cb_trend_window",
+                    )
+            with col_f2:
+                use_cdf = st.checkbox(
+                    "CDF (позиция в распределении)",
+                    value=st.session_state.get("cb_use_cdf", False),
+                    key="cb_use_cdf",
+                    help="Добавляет признак — взвешенная доля прошлых значений ≤ текущему",
+                )
+                if use_cdf:
+                    cdf_decay = st.number_input(
+                        "Затухание CDF", min_value=0.5, max_value=1.0, step=0.05, format="%.2f",
+                        value=st.session_state.get("cb_cdf_decay", 0.9), key="cb_cdf_decay",
+                    )
 
     autoarima_approx = True
     if "autoarima" in selected:
@@ -154,6 +184,12 @@ def _render_config() -> dict:
         "hyperopt_timeout": hyperopt_timeout,
         "catboost_params": {"iterations": int(cb_iterations), "learning_rate": float(cb_lr), "depth": int(cb_depth)},
         "autoarima_approximation": bool(autoarima_approx),
+        "feature_params": {
+            "use_trend": use_trend,
+            "trend_window": int(trend_window),
+            "use_cdf": use_cdf,
+            "cdf_decay": float(cdf_decay),
+        },
     }
 
 
@@ -552,6 +588,7 @@ def render() -> None:
                     hyperopt_timeout=cfg["hyperopt_timeout"],
                     catboost_params=cfg["catboost_params"],
                     autoarima_approximation=cfg["autoarima_approximation"],
+                    feature_params=cfg["feature_params"],
                 )
             except Exception as e:
                 st.error(f"Ошибка запуска: {e}")

@@ -122,6 +122,7 @@ async def _run_automl(
     hyperopt_timeout: int | None = None,
     catboost_params: dict | None = None,
     autoarima_approximation: bool = True,
+    feature_params: dict | None = None,
 ) -> dict[str, Any]:
     """Запускает AutoML через API."""
     payload: dict = {
@@ -137,6 +138,8 @@ async def _run_automl(
         payload["freq"] = freq
     if catboost_params is not None:
         payload["catboost_params"] = catboost_params
+    if feature_params is not None:
+        payload["feature_params"] = feature_params
     async with aiohttp.ClientSession() as session:
         async with session.post(
             f"{_API_URL}/projects/{project_id}/run_automl",
@@ -156,11 +159,12 @@ def run_automl(
     hyperopt_timeout: int | None = None,
     catboost_params: dict | None = None,
     autoarima_approximation: bool = True,
+    feature_params: dict | None = None,
 ) -> dict[str, Any]:
     """Запускает AutoML (синхронная обёртка)."""
     return _run(_run_automl(
         project_id, models, selection_metric, use_hyperopt,
-        freq, n_trials, hyperopt_timeout, catboost_params, autoarima_approximation,
+        freq, n_trials, hyperopt_timeout, catboost_params, autoarima_approximation, feature_params,
     ))
 
 

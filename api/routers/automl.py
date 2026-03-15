@@ -90,6 +90,15 @@ class CatBoostRunParams(BaseModel):
     depth: int = 6
 
 
+class FeatureParams(BaseModel):
+    """Параметры расширенных признаков временного ряда."""
+
+    use_trend: bool = False
+    trend_window: int = 6
+    use_cdf: bool = False
+    cdf_decay: float = 0.9
+
+
 class AutoMLRunConfig(BaseModel):
     """Конфигурация запуска AutoML."""
 
@@ -101,6 +110,7 @@ class AutoMLRunConfig(BaseModel):
     freq: str | None = None  # None = автоопределение из данных
     catboost_params: CatBoostRunParams = CatBoostRunParams()
     autoarima_approximation: bool = True
+    feature_params: FeatureParams = FeatureParams()
 
 
 @router.post("/{project_id}/run_automl", response_model=JobSchema)
@@ -148,6 +158,7 @@ async def run_automl(
         config.hyperopt_timeout,
         config.catboost_params.model_dump(),
         config.autoarima_approximation,
+        config.feature_params.model_dump(),
     )
 
     return _to_job_schema(job)

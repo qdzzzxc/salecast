@@ -68,6 +68,10 @@ class DownstreamConfig(BaseModel):
     inverse: bool = Field(
         default=True, description="Применять обратное преобразование к предсказаниям"
     )
+    use_trend: bool = Field(default=False, description="Добавлять признак тренда (наклон регрессии)")
+    trend_window: int = Field(default=6, description="Окно для вычисления тренда (точек)")
+    use_cdf: bool = Field(default=False, description="Добавлять CDF-признак (позиция в распределении)")
+    cdf_decay: float = Field(default=0.9, description="Коэффициент затухания для взвешенного CDF (0-1)")
 
 
 class Settings(BaseModel):
