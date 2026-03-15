@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Callable
 from typing import Literal
 
 import numpy as np
@@ -147,6 +148,41 @@ class StatsForecastModel(BaseForecastModel):
             evaluation=results,
             params=_EmptyParams(),
         )
+
+    def forecast_future(
+        self,
+        full_df: pd.DataFrame,
+        horizon: int,
+        settings: Settings,
+        on_training_done: Callable[[], None] | None = None,
+        on_forecast_step: Callable[[int, int], None] | None = None,
+    ) -> pd.DataFrame:
+        """Обучает модель на полных данных и строит прогноз на horizon точек вперёд."""
+        try:
+            from statsforecast import StatsForecast
+        except ImportError as e:
+            raise ImportError("statsforecast не установлен") from e
+
+        cols = settings.columns
+        sf_df = _to_sf_format(full_df, cols.id, cols.date, cols.main_target)
+
+        sf = StatsForecast(
+            models=[_make_sf_model(self.model_type, settings.ts.season_length, self.approximation)],
+            freq=settings.ts.freq,
+            verbose=False,
+        )
+        sf.fit(sf_df)
+
+        if on_training_done:
+            on_training_done()
+
+        forecast = sf.predict(h=horizon).reset_index()
+        pred_col = _MODEL_COL_MAP[self.model_type]
+        return pd.DataFrame({
+            "panel_id": forecast["unique_id"].astype(str),
+            "date": pd.to_datetime(forecast["ds"]).dt.strftime("%Y-%m-%d"),
+            "forecast": forecast[pred_col].clip(lower=0).astype(float),
+        })
 
 
 def _to_sf_format(

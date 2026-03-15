@@ -6,6 +6,7 @@ import streamlit as st
 from app.api_client import (
     get_forecast_csv_bytes,
     get_forecast_data,
+    get_forecast_progress,
     get_job,
     get_panels_data,
     run_forecast,
@@ -45,30 +46,75 @@ def _render_config(automl_result: dict) -> tuple[str, int, list[str] | None]:
     return model_name, int(horizon), None
 
 
+_FORECAST_STEPS = [
+    ("loading", "Загрузка данных"),
+    ("training", "Обучение модели"),
+    ("forecasting", "Построение прогноза"),
+    ("saving", "Сохранение"),
+]
+
+
 def _render_progress(project_id: str, job_id: str) -> bool:
-    """Опрашивает статус задачи прогноза. Возвращает True когда завершено."""
+    """Отображает прогресс прогноза. Возвращает True когда завершено."""
     try:
         job = get_job(job_id)
+        events = get_forecast_progress(project_id, job_id)
     except Exception as e:
         st.error(f"Ошибка получения статуса: {e}")
         return False
 
     status = job.get("status", "")
-    steps = job.get("steps") or []
-    last_step = steps[-1]["message"] if steps else "Инициализация..."
-
-    if status in ("pending", "running"):
-        st.info(f"⏳ {last_step}")
-        time.sleep(2)
-        st.rerun()
-        return False
 
     if status == "failed":
         st.error("Прогноз завершился с ошибкой")
         del st.session_state.forecast_job_id
         return False
 
-    return True
+    # Определяем какие шаги начались
+    started_steps = {e["step"] for e in events if e.get("type") == "step_start"}
+    is_completed = any(e.get("type") == "completed" for e in events)
+
+    n_done = sum(
+        1 for i, (step_key, _) in enumerate(_FORECAST_STEPS)
+        if step_key in started_steps and (
+            is_completed
+            or any(_FORECAST_STEPS[j][0] in started_steps for j in range(i + 1, len(_FORECAST_STEPS)))
+        )
+    )
+    n_total = len(_FORECAST_STEPS)
+    pct = int(n_done / n_total * 100) if n_total else 0
+
+    # Прогресс для шага forecasting (CatBoost)
+    forecast_steps = [e for e in events if e.get("type") == "forecast_step"]
+    last_fc = forecast_steps[-1] if forecast_steps else None
+
+    st.progress(pct if not is_completed else 100, text=f"{n_done} / {n_total} шагов")
+
+    for step_key, step_label in _FORECAST_STEPS:
+        if is_completed or (
+            step_key in started_steps and any(
+                _FORECAST_STEPS[j][0] in started_steps
+                for j in range(_FORECAST_STEPS.index((step_key, step_label)) + 1, len(_FORECAST_STEPS))
+            )
+        ):
+            st.markdown(f"✅ {step_label}")
+        elif step_key in started_steps:
+            if step_key == "forecasting" and last_fc:
+                step_i = last_fc.get("step_i", "?")
+                total = last_fc.get("total", "?")
+                fc_pct = int(int(step_i) / int(total) * 100) if str(step_i).isdigit() and str(total).isdigit() else 0
+                st.progress(fc_pct, text=f"⏳ {step_label} (шаг {step_i}/{total})")
+            else:
+                st.markdown(f"⏳ {step_label}")
+        else:
+            st.markdown(f"⬜ {step_label}")
+
+    if status == "done":
+        return True
+
+    time.sleep(2)
+    st.rerun()
+    return False
 
 
 def _render_results(project_id: str, forecast_result: dict, split_result: dict) -> None:
