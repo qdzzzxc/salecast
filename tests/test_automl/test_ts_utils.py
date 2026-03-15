@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.automl.ts_utils import _normalize_freq, get_downstream_lags, infer_ts_config
+from src.automl.ts_utils import _normalize_freq, get_downstream_lags, infer_ts_config, next_dates
 from src.configs.settings import TimeSeriesConfig
 
 
@@ -108,3 +108,38 @@ class TestGetDownstreamLags:
         for freq in ("D", "W", "MS", "Q"):
             lags = get_downstream_lags(freq)
             assert lags == sorted(lags)
+
+class TestNextDates:
+    def test_returns_n_dates(self) -> None:
+        dates = pd.Series(pd.date_range("2020-01-01", periods=24, freq="MS"))
+        result = next_dates(dates, 3)
+        assert len(result) == 3
+
+    def test_monthly_correct_dates(self) -> None:
+        dates = pd.Series(pd.date_range("2020-01-01", periods=24, freq="MS"))
+        result = next_dates(dates, 3)
+        assert pd.Timestamp(result[0]) == pd.Timestamp("2022-01-01")
+        assert pd.Timestamp(result[1]) == pd.Timestamp("2022-02-01")
+        assert pd.Timestamp(result[2]) == pd.Timestamp("2022-03-01")
+
+    def test_single_date_returned(self) -> None:
+        dates = pd.Series(pd.date_range("2021-01-01", periods=12, freq="MS"))
+        result = next_dates(dates, 1)
+        assert len(result) == 1
+
+    def test_dates_strictly_after_last(self) -> None:
+        dates = pd.Series(pd.date_range("2020-01-01", periods=12, freq="MS"))
+        last = dates.max()
+        result = next_dates(dates, 6)
+        assert all(pd.Timestamp(d) > last for d in result)
+
+    def test_fallback_to_median_delta(self) -> None:
+        """При нерегулярных датах использует медианный интервал."""
+        irregular = pd.Series([
+            pd.Timestamp("2020-01-01"),
+            pd.Timestamp("2020-02-01"),
+            pd.Timestamp("2020-03-02"),  # +1 день шум
+        ])
+        result = next_dates(irregular, 2)
+        assert len(result) == 2
+        assert all(pd.Timestamp(d) > irregular.max() for d in result)

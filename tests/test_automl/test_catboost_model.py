@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -62,3 +64,82 @@ class TestCatBoostModel:
         result = model.fit_evaluate(sample_splits, sample_settings)
         assert isinstance(result.params, CatBoostParameters)
         assert result.params.iterations == fast_params.iterations
+
+
+class TestCatBoostForecastFuture:
+    HORIZON = 2
+
+    def test_returns_dataframe(
+        self,
+        full_df: pd.DataFrame,
+        sample_settings: Settings,
+        fast_params: CatBoostParameters,
+    ) -> None:
+        """forecast_future возвращает DataFrame с нужными колонками."""
+        model = CatBoostForecastModel(params=fast_params)
+        result = model.forecast_future(full_df, self.HORIZON, sample_settings)
+        assert isinstance(result, pd.DataFrame)
+        assert set(result.columns) == {"panel_id", "date", "forecast"}
+
+    def test_correct_shape(
+        self,
+        full_df: pd.DataFrame,
+        sample_settings: Settings,
+        fast_params: CatBoostParameters,
+    ) -> None:
+        """Количество строк = n_panels × horizon."""
+        model = CatBoostForecastModel(params=fast_params)
+        result = model.forecast_future(full_df, self.HORIZON, sample_settings)
+        n_panels = full_df[sample_settings.columns.id].nunique()
+        assert len(result) == n_panels * self.HORIZON
+
+    def test_no_negative_values(
+        self,
+        full_df: pd.DataFrame,
+        sample_settings: Settings,
+        fast_params: CatBoostParameters,
+    ) -> None:
+        """Прогноз не содержит отрицательных значений."""
+        model = CatBoostForecastModel(params=fast_params)
+        result = model.forecast_future(full_df, self.HORIZON, sample_settings)
+        assert (result["forecast"] >= 0).all()
+
+    def test_on_training_done_called_once(
+        self,
+        full_df: pd.DataFrame,
+        sample_settings: Settings,
+        fast_params: CatBoostParameters,
+    ) -> None:
+        """on_training_done вызывается ровно один раз после обучения."""
+        callback = MagicMock()
+        model = CatBoostForecastModel(params=fast_params)
+        model.forecast_future(full_df, self.HORIZON, sample_settings, on_training_done=callback)
+        callback.assert_called_once()
+
+    def test_on_forecast_step_called_per_horizon(
+        self,
+        full_df: pd.DataFrame,
+        sample_settings: Settings,
+        fast_params: CatBoostParameters,
+    ) -> None:
+        """on_forecast_step вызывается horizon раз — по одному на каждый шаг."""
+        callback = MagicMock()
+        model = CatBoostForecastModel(params=fast_params)
+        model.forecast_future(full_df, self.HORIZON, sample_settings, on_forecast_step=callback)
+        assert callback.call_count == self.HORIZON
+
+    def test_forecast_step_args(
+        self,
+        full_df: pd.DataFrame,
+        sample_settings: Settings,
+        fast_params: CatBoostParameters,
+    ) -> None:
+        """on_forecast_step получает (step_i, total) начиная с (1, horizon)."""
+        calls = []
+        model = CatBoostForecastModel(params=fast_params)
+        model.forecast_future(
+            full_df, self.HORIZON, sample_settings,
+            on_forecast_step=lambda i, n: calls.append((i, n)),
+        )
+        assert calls[0] == (1, self.HORIZON)
+        assert calls[-1] == (self.HORIZON, self.HORIZON)

@@ -35,3 +35,11 @@ def sample_splits() -> Splits[pd.DataFrame]:
 def sample_settings() -> Settings:
     """Дефолтный Settings с отключённым обратным преобразованием для тестов."""
     return Settings()
+
+
+@pytest.fixture()
+def full_df(sample_splits: Splits[pd.DataFrame]) -> pd.DataFrame:
+    """Полный датафрейм (train+val+test) для тестов forecast_future."""
+    return pd.concat(
+        [sample_splits.train, sample_splits.val, sample_splits.test], ignore_index=True
+    )
