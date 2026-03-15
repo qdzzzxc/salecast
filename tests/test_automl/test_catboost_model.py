@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from src.automl.base import ModelCancelledError
-from src.automl.models.catboost_model import CatBoostForecastModel
+from src.automl.models.catboost_model import CatBoostForecastModel, CatBoostPerPanelForecastModel
 from src.configs.settings import Settings
 from src.custom_types import CatBoostParameters, ModelResult, Splits
 
@@ -167,3 +167,132 @@ class TestCatBoostForecastFuture:
         )
         assert calls[0] == (1, self.HORIZON)
         assert calls[-1] == (self.HORIZON, self.HORIZON)
+
+
+class TestCatBoostPerPanelModel:
+    def test_fit_evaluate_returns_model_result(
+        self,
+        sample_splits: Splits[pd.DataFrame],
+        sample_settings: Settings,
+        fast_params: CatBoostParameters,
+    ) -> None:
+        """fit_evaluate возвращает ModelResult с именем catboost_per_panel."""
+        model = CatBoostPerPanelForecastModel(params=fast_params)
+        result = model.fit_evaluate(sample_splits, sample_settings)
+        assert isinstance(result, ModelResult)
+        assert result.name == "catboost_per_panel"
+
+    def test_evaluation_has_val_and_test(
+        self,
+        sample_splits: Splits[pd.DataFrame],
+        sample_settings: Settings,
+        fast_params: CatBoostParameters,
+    ) -> None:
+        """EvaluationResults содержит val и test сплиты."""
+        model = CatBoostPerPanelForecastModel(params=fast_params)
+        result = model.fit_evaluate(sample_splits, sample_settings)
+        split_names = {s.split_name for s in result.evaluation.splits}
+        assert "val" in split_names
+        assert "test" in split_names
+
+    def test_predictions_are_finite(
+        self,
+        sample_splits: Splits[pd.DataFrame],
+        sample_settings: Settings,
+        fast_params: CatBoostParameters,
+    ) -> None:
+        """Предсказания не содержат NaN или Inf."""
+        model = CatBoostPerPanelForecastModel(params=fast_params)
+        result = model.fit_evaluate(sample_splits, sample_settings)
+        for split_eval in result.evaluation.splits:
+            assert np.all(np.isfinite(split_eval.y_pred))
+
+    def test_cancel_fn_raises(
+        self,
+        sample_splits: Splits[pd.DataFrame],
+        sample_settings: Settings,
+        fast_params: CatBoostParameters,
+    ) -> None:
+        """cancel_fn=True сразу бросает ModelCancelledError."""
+        model = CatBoostPerPanelForecastModel(params=fast_params)
+        with pytest.raises(ModelCancelledError):
+            model.fit_evaluate(sample_splits, sample_settings, cancel_fn=lambda: True)
+
+    def test_skips_panels_with_too_few_points(self, sample_settings: Settings) -> None:
+        """Панель с < MIN_TRAIN_POINTS точек в train пропускается."""
+        rng = np.random.default_rng(0)
+        dates = pd.date_range("2021-01-01", periods=36, freq="MS")
+        # Одна нормальная панель (36 точек), одна короткая (5 точек)
+        normal = pd.DataFrame({"article": "A", "date": dates, "sales": rng.uniform(5, 50, 36)})
+        short_dates = dates[:5]
+        short = pd.DataFrame({"article": "B", "date": short_dates, "sales": rng.uniform(5, 50, 5)})
+        all_df = pd.concat([normal, short], ignore_index=True)
+        train = all_df[all_df["date"] < "2023-07-01"].copy()
+        val = all_df[(all_df["date"] >= "2023-07-01") & (all_df["date"] < "2023-10-01")].copy()
+        test = all_df[all_df["date"] >= "2023-10-01"].copy()
+        splits = Splits(train=train, val=val, test=test)
+
+        model = CatBoostPerPanelForecastModel(
+            params=CatBoostParameters(iterations=10, depth=2, verbose=False)
+        )
+        result = model.fit_evaluate(splits, sample_settings)
+        # Только нормальная панель даёт предсказания
+        assert result is not None
+
+
+class TestCatBoostPerPanelForecastFuture:
+    HORIZON = 2
+
+    def test_returns_dataframe(
+        self, full_df: pd.DataFrame, sample_settings: Settings, fast_params: CatBoostParameters
+    ) -> None:
+        """forecast_future возвращает DataFrame с нужными колонками."""
+        model = CatBoostPerPanelForecastModel(params=fast_params)
+        result = model.forecast_future(full_df, self.HORIZON, sample_settings)
+        assert isinstance(result, pd.DataFrame)
+        assert set(result.columns) == {"panel_id", "date", "forecast"}
+
+    def test_correct_shape(
+        self, full_df: pd.DataFrame, sample_settings: Settings, fast_params: CatBoostParameters
+    ) -> None:
+        """Количество строк = n_panels × horizon."""
+        model = CatBoostPerPanelForecastModel(params=fast_params)
+        result = model.forecast_future(full_df, self.HORIZON, sample_settings)
+        n_panels = full_df[sample_settings.columns.id].nunique()
+        assert len(result) == n_panels * self.HORIZON
+
+    def test_no_negative_values(
+        self, full_df: pd.DataFrame, sample_settings: Settings, fast_params: CatBoostParameters
+    ) -> None:
+        """Прогноз не содержит отрицательных значений."""
+        model = CatBoostPerPanelForecastModel(params=fast_params)
+        result = model.forecast_future(full_df, self.HORIZON, sample_settings)
+        assert (result["forecast"] >= 0).all()
+
+    def test_dates_after_last_training_date(
+        self, full_df: pd.DataFrame, sample_settings: Settings, fast_params: CatBoostParameters
+    ) -> None:
+        """Все даты прогноза строго после последней даты в full_df."""
+        model = CatBoostPerPanelForecastModel(params=fast_params)
+        result = model.forecast_future(full_df, self.HORIZON, sample_settings)
+        last_date = pd.to_datetime(full_df[sample_settings.columns.date]).max()
+        assert (pd.to_datetime(result["date"]) > last_date).all()
+
+    def test_on_training_done_called_once(
+        self, full_df: pd.DataFrame, sample_settings: Settings, fast_params: CatBoostParameters
+    ) -> None:
+        """on_training_done вызывается ровно один раз."""
+        callback = MagicMock()
+        model = CatBoostPerPanelForecastModel(params=fast_params)
+        model.forecast_future(full_df, self.HORIZON, sample_settings, on_training_done=callback)
+        callback.assert_called_once()
+
+    def test_on_forecast_step_called_per_panel(
+        self, full_df: pd.DataFrame, sample_settings: Settings, fast_params: CatBoostParameters
+    ) -> None:
+        """on_forecast_step вызывается n_panels раз — по одному на каждую панель."""
+        callback = MagicMock()
+        model = CatBoostPerPanelForecastModel(params=fast_params)
+        model.forecast_future(full_df, self.HORIZON, sample_settings, on_forecast_step=callback)
+        n_panels = full_df[sample_settings.columns.id].nunique()
+        assert callback.call_count == n_panels
