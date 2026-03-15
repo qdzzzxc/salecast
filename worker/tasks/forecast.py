@@ -161,6 +161,7 @@ def _forecast_catboost(
     drop_cols = {target, id_col, date}
     feature_cols = [c for c in features_df.columns if c not in drop_cols]
 
+    _FUTURE = "_future"
     running_df = full_df.copy()
     all_preds = []
 
@@ -168,13 +169,16 @@ def _forecast_catboost(
         next_rows = []
         for pid, group in running_df.groupby(panel_col):
             nd = _next_dates(group[date_col], 1)[0]
-            next_rows.append({panel_col: pid, date_col: nd, value_col: 0.0})
+            next_rows.append({panel_col: pid, date_col: nd, value_col: 0.0, _FUTURE: True})
 
         next_df = pd.DataFrame(next_rows)
-        extended = pd.concat([running_df, next_df], ignore_index=True)
+        extended = pd.concat(
+            [running_df.assign(**{_FUTURE: False}), next_df],
+            ignore_index=True,
+        )
         feat = build_monthly_features(extended, forecast_settings, disable_tqdm=True)
 
-        future_feat = feat.tail(len(next_rows))[feature_cols].reset_index(drop=True)
+        future_feat = feat[feat[_FUTURE].fillna(False)][feature_cols].reset_index(drop=True)
         preds = model.predict(future_feat)
         preds = np.maximum(preds, 0)
 
@@ -188,7 +192,7 @@ def _forecast_catboost(
                 "forecast": float(preds[i]),
             })
 
-        running_df = pd.concat([running_df, next_df], ignore_index=True)
+        running_df = pd.concat([running_df, next_df.drop(columns=[_FUTURE])], ignore_index=True)
 
     return pd.DataFrame(all_preds)
 
