@@ -44,5 +44,3 @@ jupyter = [
     "nbformat>=5.10.4",
 ]
 
-[tool.pytest.ini_options]
-pythonpath = ["."]
