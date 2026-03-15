@@ -52,3 +52,13 @@ async def download_file(key: str) -> bytes:
     async with _s3_client() as client:
         response = await client.get_object(Bucket=_BUCKET, Key=key)
         return await response["Body"].read()
+
+
+async def delete_prefix(prefix: str) -> None:
+    """Удаляет все объекты в MinIO с заданным префиксом."""
+    async with _s3_client() as client:
+        paginator = client.get_paginator("list_objects_v2")
+        async for page in paginator.paginate(Bucket=_BUCKET, Prefix=prefix):
+            objects = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
+            if objects:
+                await client.delete_objects(Bucket=_BUCKET, Delete={"Objects": objects})

@@ -46,23 +46,27 @@ _VAL_COLOR = "rgba(255, 180, 50, 0.2)"
 _TEST_COLOR = "rgba(229, 100, 100, 0.2)"
 
 
+def _load_yaml_config(uploaded) -> None:
+    """Записывает параметры из загруженного YAML в session_state."""
+    cfg = yaml.safe_load(uploaded.read())
+    st.session_state["automl_metric"] = cfg.get("selection_metric", "mape")
+    st.session_state["automl_hyperopt"] = cfg.get("use_hyperopt", False)
+    st.session_state["automl_n_trials"] = cfg.get("n_trials", 30)
+    for model in _ALL_MODELS:
+        st.session_state[f"model_{model}"] = model in cfg.get("models", [])
+    cb = cfg.get("catboost_params") or {}
+    st.session_state["cb_iterations"] = cb.get("iterations", 1000)
+    st.session_state["cb_lr"] = cb.get("learning_rate", 0.03)
+    st.session_state["cb_depth"] = cb.get("depth", 6)
+    st.session_state["autoarima_approx"] = cfg.get("autoarima_approximation", True)
+
+
 def _render_config() -> dict:
     """Конфигурация AutoML. Возвращает словарь параметров для API."""
-    col_up, col_down = st.columns(2)
-    with col_up:
-        uploaded = st.file_uploader("Загрузить конфиг (YAML)", type=["yaml", "yml"], key="config_upload")
+    with st.popover("Загрузить конфиг (YAML)"):
+        uploaded = st.file_uploader("YAML файл", type=["yaml", "yml"], key="config_upload", label_visibility="collapsed")
         if uploaded:
-            cfg = yaml.safe_load(uploaded.read())
-            st.session_state["automl_metric"] = cfg.get("selection_metric", "mape")
-            st.session_state["automl_hyperopt"] = cfg.get("use_hyperopt", False)
-            st.session_state["automl_n_trials"] = cfg.get("n_trials", 30)
-            for model in _ALL_MODELS:
-                st.session_state[f"model_{model}"] = model in cfg.get("models", [])
-            cb = cfg.get("catboost_params") or {}
-            st.session_state["cb_iterations"] = cb.get("iterations", 1000)
-            st.session_state["cb_lr"] = cb.get("learning_rate", 0.03)
-            st.session_state["cb_depth"] = cb.get("depth", 6)
-            st.session_state["autoarima_approx"] = cfg.get("autoarima_approximation", True)
+            _load_yaml_config(uploaded)
             st.rerun()
 
     st.markdown("**Модели**")
@@ -117,7 +121,7 @@ def _render_config() -> dict:
         )
         st.caption("Значительно увеличивает время обучения CatBoost")
 
-    config_dict = {
+    return {
         "models": selected,
         "selection_metric": metric,
         "use_hyperopt": use_hyperopt,
@@ -125,12 +129,6 @@ def _render_config() -> dict:
         "catboost_params": {"iterations": int(cb_iterations), "learning_rate": float(cb_lr), "depth": int(cb_depth)},
         "autoarima_approximation": bool(autoarima_approx),
     }
-
-    with col_down:
-        yaml_bytes = yaml.dump(config_dict, allow_unicode=True, default_flow_style=False).encode()
-        st.download_button("Скачать конфиг (YAML)", yaml_bytes, "automl_config.yaml", "text/yaml")
-
-    return config_dict
 
 
 def _render_progress(project_id: str, job_id: str, models: list[str]) -> bool:
@@ -506,7 +504,11 @@ def render() -> None:
         st.warning("Выберите хотя бы одну модель")
         return
 
-    if st.button("▶ Запустить AutoML", type="primary", use_container_width=True):
+    col_run, col_dl = st.columns([4, 1])
+    yaml_bytes = yaml.dump(cfg, allow_unicode=True, default_flow_style=False).encode()
+    col_dl.download_button("Сохранить конфиг", yaml_bytes, "automl_config.yaml", "text/yaml", use_container_width=True)
+
+    if col_run.button("▶ Запустить AutoML", type="primary", use_container_width=True):
         with st.spinner("Запускаю..."):
             try:
                 job = run_automl(
