@@ -171,6 +171,7 @@ def run_automl(
     hyperopt_timeout: int | None = None,
     catboost_params: dict | None = None,
     autoarima_approximation: bool = True,
+    feature_params: dict | None = None,
 ) -> dict:
     """Запускает AutoML: обучает модели на отфильтрованных панелях, выбирает лучшую."""
     from api.models import Job
@@ -215,11 +216,14 @@ def run_automl(
                 ts_config.freq, ts_config.season_length, lags, "явно задан" if freq else "автоопределение",
             )
             base_settings = Settings()
+            downstream_update: dict = {"lags": lags}
+            if feature_params:
+                downstream_update.update(feature_params)
             settings = base_settings.model_copy(
                 update={
                     "columns": ColumnConfig(id=panel_col, date=date_col, main_target=value_col),
                     "ts": ts_config,
-                    "downstream": base_settings.downstream.model_copy(update={"lags": lags}),
+                    "downstream": base_settings.downstream.model_copy(update=downstream_update),
                 }
             )
 

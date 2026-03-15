@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from celery_app import celery
-from src.automl.models import CatBoostForecastModel, SeasonalNaiveForecastModel, StatsForecastModel
+from src.automl.models import CatBoostForecastModel, CatBoostPerPanelForecastModel, SeasonalNaiveForecastModel, StatsForecastModel
 from src.automl.ts_utils import get_downstream_lags, infer_ts_config
 from src.configs.settings import ColumnConfig, Settings
 
@@ -81,6 +81,8 @@ def _build_model(model_name: str):
         return SeasonalNaiveForecastModel()
     if model_name == "catboost":
         return CatBoostForecastModel()
+    if model_name == "catboost_per_panel":
+        return CatBoostPerPanelForecastModel()
     if model_name in ("autoarima", "autoets", "autotheta"):
         return StatsForecastModel(model_type=model_name)
     raise ValueError(f"Неизвестная модель: {model_name}")

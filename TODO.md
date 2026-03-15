@@ -35,14 +35,9 @@
 
 ---
 
-### 3. CatBoost отдельно под каждую панель
-**Идея:** вместо одной глобальной CatBoost-модели на все панели — обучать отдельную модель для каждой панели.
-**Реализация:**
-- Новый класс `CatBoostPerPanelForecastModel` в `src/automl/models/catboost_model.py`
-- В `fit_evaluate`: для каждой панели отдельный `build_monthly_features` + `train_catboost` + `evaluate_catboost`
-- В `forecast_future`: аналогично, `on_forecast_step` = (panel_index, total_panels)
-- Панели с < 24 точками пропускать (warning в лог)
-- Добавить в UI как новую опцию `"catboost_per_panel"` с caption "Медленно при > 100 панелях"
+### 3. CatBoost отдельно под каждую панель ✅ ГОТОВО
+- `CatBoostPerPanelForecastModel` в `src/automl/models/catboost_model.py`
+- В UI: чекбокс `catboost_per_panel` с caption "Медленно"
 
 ### 4. Кластеризация панелей (с нуля)
 **Что:** новый модуль `src/clustering.py` для группировки TS по характеристикам.
