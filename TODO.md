@@ -37,34 +37,51 @@
 
 ### 3. CatBoost отдельно под каждую панель
 **Идея:** вместо одной глобальной CatBoost-модели на все панели — обучать отдельную модель для каждой панели.
-**Плюсы:** модель специализируется на поведении конкретного ряда, нет смешения разных паттернов.
-**Минусы:** очень медленно при большом числе панелей; требует достаточно точек в каждом ряду (min ~24–36 точек).
 **Реализация:**
 - Новый класс `CatBoostPerPanelForecastModel` в `src/automl/models/catboost_model.py`
-- В `fit_evaluate`: для каждой панели отдельный `train_catboost` + `evaluate_catboost`
-- В `forecast_future`: для каждой панели отдельный `train_catboost` + `predict`
-- Добавить в UI как новую опцию модели `"catboost_per_panel"` с предупреждением о скорости
-- Можно добавить порог: если панелей < N, то per-panel, иначе предупреждение
+- В `fit_evaluate`: для каждой панели отдельный `build_monthly_features` + `train_catboost` + `evaluate_catboost`
+- В `forecast_future`: аналогично, `on_forecast_step` = (panel_index, total_panels)
+- Панели с < 24 точками пропускать (warning в лог)
+- Добавить в UI как новую опцию `"catboost_per_panel"` с caption "Медленно при > 100 панелях"
 
-### 4. CatBoost на кластеры панелей
-**Идея:** кластеризовать панели по TS-признакам (ts_features.py), обучить одну CatBoost-модель на каждый кластер.
-**Зависимость:** `src/ts_features.py` уже есть.
+### 4. Кластеризация панелей (с нуля)
+**Что:** новый модуль `src/clustering.py` для группировки TS по характеристикам.
+**Нужен для:** CatBoost clustered (п.5).
+**Функции:**
+- `extract_ts_features(df, panel_col, date_col, value_col) -> DataFrame` — mean, CV, autocorr, trend, seasonality
+- `cluster_panels(features_df, n_clusters, method) -> dict[panel_id, int]` — KMeans или HDBSCAN
+- `assign_clusters(df, panel_col, cluster_labels) -> DataFrame`
+**Заготовки:** `src/ts_features.py` уже есть, нужно дописать и интегрировать.
 
-### 5. TS2Vec
-Контрастивное обучение представлений ВР → embeddings → forecasting head.
-Код будет предоставлен пользователем, затем адаптируем под `BaseForecastModel`.
+### 5. CatBoost на кластеры панелей
+**Зависимость:** п.4 (кластеризация).
+**Реализация:** `CatBoostClusteredForecastModel` в `src/automl/models/catboost_clustered_model.py`
+- fit: extract_ts_features → cluster_panels → train_catboost per cluster
+- forecast: assign_clusters → predict с нужной моделью
+**UI:** параметр `n_clusters` (default 5) в expander.
 
-### 6. Chronos (Amazon)
-Foundation model (T5-based, pretrained). Zero-shot или fine-tuned.
-`pip install chronos-forecasting`. Код будет предоставлен пользователем.
+### 6. TS2Vec → CatBoost/MLP
+**Что:** контрастивное обучение представлений ВР → embeddings → downstream regressor.
+**Источник кода (уже изучен):**
+- Ядро: `/home/nikita/projects/sales_ts_prediction/repos/ts2vec/`
+- Обёртки: `/home/nikita/projects/sales_ts_prediction/src/ts2vec_utilities/`
+- MLP head: `/home/nikita/projects/sales_ts_prediction/src/mlp_utilities/`
+- Regression features: `/home/nikita/projects/sales_ts_prediction/src/get_features.py`
+**Реализация:** скопировать ядро в `src/automl/ts2vec/`, адаптировать utilities под `BaseForecastModel`.
+**Зависимости:** `uv add torch --optional neural`
 
-### 7. AutoGluon
-Исследование: запустить `TimeSeriesPredictor` на демо-данных, оценить качество vs размер vs скорость.
-Решить: обёртка как одна модель или отдельный AutoML-backend.
+### 7. Chronos (Amazon)
+Foundation model (T5-based, pretrained на ~1B точек). Zero-shot прогнозирование.
+`uv add chronos-forecasting --optional neural`.
+Реализуем самостоятельно по документации: `ChronosForecastModel` в `src/automl/models/chronos_model.py`.
 
-### 8. Статфичи от Пасканова
-Расширенные признаки для CatBoost (Fourier, entropy, trend strength и др.).
-Код будет предоставлен пользователем, интегрируем в `classifical_features.py` или отдельным модулем.
+### 8. AutoGluon
+Исследование: запустить `TimeSeriesPredictor` на демо-данных, оценить качество vs размер (~2–4 ГБ) vs скорость.
+Откладываем до завершения остальных моделей.
+
+### 9. Статфичи от Пасканова
+Расширенные TS-признаки для CatBoost (Fourier, entropy, trend strength, autocorr и др.).
+**Статус: ждём код от пользователя** → интегрируем в отдельный `src/paskanov_features.py` + toggle в UI.
 
 ### 9. Мультисезонность для дневных данных (MSTL)
 **Проблема:** при freq=D сейчас передаётся `season_length=7` — только недельная сезонность.
@@ -116,6 +133,16 @@ Foundation model (T5-based, pretrained). Zero-shot или fine-tuned.
 
 Проверить что при перезапуске API:
 - [ ] Pending job'ы не зависают навсегда (нужен механизм timeout или статус-проверки при старте)
+
+---
+
+## 🔵 Проверка на реальных данных
+
+### 11. Прогон CatBoost per-panel на реальных данных WB
+Запустить `catboost_per_panel` через UI на `data/raw/filtered_ts.csv`, сравнить с глобальным CatBoost:
+- [ ] Метрики (val MAPE, test MAPE) — лучше или хуже глобального?
+- [ ] Время обучения — насколько медленнее?
+- [ ] Проверить что progress-бар отображает прогресс по панелям корректно
 
 ---
 
