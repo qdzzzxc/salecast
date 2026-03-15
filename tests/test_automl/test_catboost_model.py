@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.automl.base import ModelCancelledError
 from src.automl.models.catboost_model import CatBoostForecastModel
 from src.configs.settings import Settings
 from src.custom_types import CatBoostParameters, ModelResult, Splits
@@ -64,6 +65,29 @@ class TestCatBoostModel:
         result = model.fit_evaluate(sample_splits, sample_settings)
         assert isinstance(result.params, CatBoostParameters)
         assert result.params.iterations == fast_params.iterations
+
+    def test_progress_fn_called(
+        self,
+        sample_splits: Splits[pd.DataFrame],
+        sample_settings: Settings,
+        fast_params: CatBoostParameters,
+    ) -> None:
+        """progress_fn вызывается хотя бы один раз в ходе обучения."""
+        progress = MagicMock()
+        model = CatBoostForecastModel(params=fast_params)
+        model.fit_evaluate(sample_splits, sample_settings, progress_fn=progress)
+        assert progress.call_count > 0
+
+    def test_cancel_fn_raises_model_cancelled_error(
+        self,
+        sample_splits: Splits[pd.DataFrame],
+        sample_settings: Settings,
+        fast_params: CatBoostParameters,
+    ) -> None:
+        """Если cancel_fn сразу возвращает True, бросается ModelCancelledError."""
+        model = CatBoostForecastModel(params=fast_params)
+        with pytest.raises(ModelCancelledError):
+            model.fit_evaluate(sample_splits, sample_settings, cancel_fn=lambda: True)
 
 
 class TestCatBoostForecastFuture:
