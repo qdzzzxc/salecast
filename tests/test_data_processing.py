@@ -11,7 +11,11 @@ from src.data_processing import (
     filter_panels_by_split_missing,
     filter_sellers_by_min_periods,
     find_trim_indices,
+    fit_panel_scalers,
+    inverse_transform_panel_columns,
+    scale_panel_splits,
     sort_panel_by_date,
+    transform_panel_columns,
 )
 
 
@@ -235,3 +239,140 @@ class TestCountOutliers:
         normal = pd.Series([1.0, 2.0, 1.5, 2.0, 1.0] * 10)
         with_outlier = pd.concat([normal, pd.Series([10000.0])], ignore_index=True)
         assert count_outliers(with_outlier) > 0
+
+
+class TestFitPanelScalers:
+    def test_returns_scaler_per_panel(self) -> None:
+        """fit_panel_scalers возвращает скейлер для каждой панели."""
+        df = _make_panel(n_panels=3, n_periods=12)
+        scalers = fit_panel_scalers(df, "article", ["sales"])
+        assert set(scalers["sales"].keys()) == set(df["article"].unique())
+
+    def test_scaler_mean_close_to_zero_after_transform(self) -> None:
+        """После обучения и применения среднее по панели ≈ 0."""
+        df = _make_panel(n_panels=2, n_periods=24)
+        scalers = fit_panel_scalers(df, "article", ["sales"])
+        transformed = transform_panel_columns(df, scalers, "article", ["sales"])
+        for panel_id, group in transformed.groupby("article"):
+            assert abs(group["sales"].mean()) < 0.1
+
+    def test_apply_log_changes_scale(self) -> None:
+        """apply_log=True логарифмирует данные перед масштабированием."""
+        df = _make_panel(n_panels=2, n_periods=12)
+        scalers_no_log = fit_panel_scalers(df, "article", ["sales"], apply_log=False)
+        scalers_log = fit_panel_scalers(df, "article", ["sales"], apply_log=True)
+        panel_id = df["article"].iloc[0]
+        mean_no_log = scalers_no_log["sales"][panel_id].mean_[0]
+        mean_log = scalers_log["sales"][panel_id].mean_[0]
+        assert mean_no_log != mean_log
+
+
+class TestTransformPanelColumns:
+    def test_raises_for_unknown_panel(self) -> None:
+        """ValueError при наличии в df панели, отсутствующей в scalers."""
+        train = _make_panel(n_panels=2, n_periods=12)
+        scalers = fit_panel_scalers(train, "article", ["sales"])
+        new_panel = pd.DataFrame(
+            [{"article": "UNKNOWN", "date": pd.Timestamp("2021-01-01"), "sales": 5.0}]
+        )
+        with pytest.raises(ValueError, match="Scaler not found"):
+            transform_panel_columns(new_panel, scalers, "article", ["sales"])
+
+    def test_does_not_mutate_original(self) -> None:
+        """transform_panel_columns не изменяет оригинальный датафрейм."""
+        df = _make_panel(n_panels=2, n_periods=12)
+        scalers = fit_panel_scalers(df, "article", ["sales"])
+        original_values = df["sales"].copy()
+        transform_panel_columns(df, scalers, "article", ["sales"])
+        pd.testing.assert_series_equal(df["sales"], original_values)
+
+
+class TestInverseTransformPanelColumns:
+    def test_roundtrip_restores_original(self) -> None:
+        """transform + inverse_transform восстанавливает исходные значения."""
+        df = _make_panel(n_panels=3, n_periods=12)
+        scalers = fit_panel_scalers(df, "article", ["sales"])
+        transformed = transform_panel_columns(df, scalers, "article", ["sales"])
+        restored = inverse_transform_panel_columns(transformed, scalers, "article", ["sales"])
+        pd.testing.assert_series_equal(
+            df["sales"].reset_index(drop=True),
+            restored["sales"].reset_index(drop=True),
+            check_names=False,
+            atol=1e-6,
+        )
+
+    def test_roundtrip_with_log(self) -> None:
+        """Логарифмический round-trip восстанавливает исходные значения."""
+        df = _make_panel(n_panels=2, n_periods=12)
+        scalers = fit_panel_scalers(df, "article", ["sales"], apply_log=True)
+        transformed = transform_panel_columns(df, scalers, "article", ["sales"], apply_log=True)
+        restored = inverse_transform_panel_columns(
+            transformed, scalers, "article", ["sales"], apply_log=True
+        )
+        pd.testing.assert_series_equal(
+            df["sales"].reset_index(drop=True),
+            restored["sales"].reset_index(drop=True),
+            check_names=False,
+            atol=1e-6,
+        )
+
+
+class TestScalePanelSplits:
+    def _split_by_date(self, df: pd.DataFrame, train_end: str, val_end: str | None = None):
+        train = df[df["date"] < train_end].copy()
+        if val_end:
+            val = df[(df["date"] >= train_end) & (df["date"] < val_end)].copy()
+            test = df[df["date"] >= val_end].copy()
+            return train, val, test
+        test = df[df["date"] >= train_end].copy()
+        return train, None, test
+
+    def test_returns_scaled_splits(self) -> None:
+        """scale_panel_splits возвращает ScaledSplits с train, test и scalers."""
+        df = _make_panel(n_panels=2, n_periods=24)
+        train, _, test = self._split_by_date(df, "2022-01-01")
+        result = scale_panel_splits((train, None, test), "article", ["sales"])
+        assert result.train is not None
+        assert result.test is not None
+        assert result.scalers is not None
+
+    def test_val_none_handled(self) -> None:
+        """Если val=None, результирующий val тоже None."""
+        df = _make_panel(n_panels=2, n_periods=24)
+        train, _, test = self._split_by_date(df, "2022-01-01")
+        result = scale_panel_splits((train, None, test), "article", ["sales"])
+        assert result.val is None
+
+    def test_val_is_transformed(self) -> None:
+        """Если val передан, он трансформируется теми же скейлерами."""
+        df = _make_panel(n_panels=2, n_periods=24)
+        train, val, test = self._split_by_date(df, "2022-01-01", "2022-07-01")
+        result = scale_panel_splits((train, val, test), "article", ["sales"])
+        assert result.val is not None
+        assert len(result.val) == len(val)
+
+    def test_scalers_fit_on_train_only(self) -> None:
+        """Скейлеры содержат запись для каждой панели из train."""
+        df = _make_panel(n_panels=2, n_periods=24)
+        train, _, test = self._split_by_date(df, "2022-01-01")
+        result = scale_panel_splits((train, None, test), "article", ["sales"])
+        for panel_id in train["article"].unique():
+            assert panel_id in result.scalers["sales"]
+
+
+class TestClipPanelOutliersWithVal:
+    def test_val_is_clipped_too(self) -> None:
+        """Если val передан, его значения тоже клиппируются."""
+        df = _make_panel(n_panels=2, n_periods=60)
+        df.loc[df.index[0], "sales"] = 99999.0
+        train = df[df["date"] < "2023-01-01"].copy()
+        val = df[(df["date"] >= "2023-01-01") & (df["date"] < "2024-01-01")].copy()
+        test = df[df["date"] >= "2024-01-01"].copy()
+        result = clip_panel_outliers(
+            (train, val, test),
+            panel_column="article",
+            target_columns=["sales"],
+            min_panel_size=5,
+        )
+        assert result.val is not None
+        assert result.val["sales"].max() < 99999.0

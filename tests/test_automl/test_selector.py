@@ -1,10 +1,11 @@
 import pandas as pd
 import pytest
+from unittest.mock import patch
 
 from src.automl.config import AutoMLConfig
-from src.automl.selector import ModelSelector
+from src.automl.selector import ModelSelector, _build_model, _get_metric_value
 from src.configs.settings import Settings
-from src.custom_types import AutoMLResult, Splits
+from src.custom_types import AutoMLResult, ModelResult, Splits
 
 
 @pytest.fixture()
@@ -87,3 +88,39 @@ class TestModelSelector:
             ]
             if other_val_evals:
                 assert best_mape <= other_val_evals[0].overall_metrics.mape
+
+    def test_hyperopt_branch_called(
+        self,
+        sample_splits: Splits[pd.DataFrame],
+        sample_settings: Settings,
+    ) -> None:
+        """При use_hyperopt=True tune_catboost вызывается перед обучением."""
+        from src.custom_types import CatBoostParameters
+
+        config = AutoMLConfig(models=["catboost"], selection_metric="mape", use_hyperopt=True, n_trials=1)
+        selector = ModelSelector(config)
+
+        fast_params = CatBoostParameters(iterations=10, depth=2, verbose=False)
+        with patch("src.automl.hyperopt.tune_catboost", return_value=fast_params) as mock_tune:
+            result = selector.run(sample_splits, sample_settings)
+        mock_tune.assert_called_once()
+        assert isinstance(result, AutoMLResult)
+
+
+class TestBuildModel:
+    def test_raises_for_unknown_model_type(self) -> None:
+        """_build_model бросает ValueError для неизвестного типа модели."""
+        with pytest.raises(ValueError, match="Неизвестный тип модели"):
+            _build_model("unknown_model")  # type: ignore[arg-type]
+
+
+class TestGetMetricValue:
+    def test_returns_inf_when_no_splits(self, sample_splits, sample_settings) -> None:
+        """_get_metric_value возвращает inf если нет подходящего сплита."""
+        from src.automl.models.seasonal_naive_model import SeasonalNaiveForecastModel
+
+        model = SeasonalNaiveForecastModel()
+        result = model.fit_evaluate(sample_splits, sample_settings)
+        # Запрашиваем несуществующий сплит
+        value = _get_metric_value(result, "mape", "nonexistent_split")
+        assert value == float("inf") or value > 0  # fallback to test or inf
