@@ -15,7 +15,7 @@ from app.api_client import (
 )
 from app.state import get_current_project
 
-_ALL_MODELS = ["seasonal_naive", "catboost", "autoarima", "autoets", "autotheta"]
+_ALL_MODELS = ["seasonal_naive", "catboost", "catboost_per_panel", "autoarima", "autoets", "autotheta"]
 
 _FREQ_LABELS: dict[str, str] = {
     "D": "Дневная", "B": "Рабочие дни",
@@ -28,6 +28,7 @@ _FREQ_SEASON: dict[str, int] = {"D": 7, "W": 52, "MS": 12, "QS": 4}
 _MODEL_LABELS = {
     "seasonal_naive": "Seasonal Naive",
     "catboost": "CatBoost",
+    "catboost_per_panel": "CatBoost per-panel",
     "autoarima": "AutoARIMA",
     "autoets": "AutoETS",
     "autotheta": "AutoTheta",
@@ -35,6 +36,7 @@ _MODEL_LABELS = {
 _MODEL_COLORS = {
     "seasonal_naive": "#4CAF50",
     "catboost": "#FF6B6B",
+    "catboost_per_panel": "#FF9999",
     "autoarima": "#FFB347",
     "autoets": "#87CEEB",
     "autotheta": "#F7C948",
@@ -52,6 +54,7 @@ def _load_yaml_config(uploaded) -> None:
     st.session_state["automl_metric"] = cfg.get("selection_metric", "mape")
     st.session_state["automl_hyperopt"] = cfg.get("use_hyperopt", False)
     st.session_state["automl_n_trials"] = cfg.get("n_trials", 30)
+    st.session_state["automl_hyperopt_timeout"] = cfg.get("hyperopt_timeout")
     for model in _ALL_MODELS:
         st.session_state[f"model_{model}"] = model in cfg.get("models", [])
     cb = cfg.get("catboost_params") or {}
@@ -75,13 +78,16 @@ def _render_config() -> dict:
     defaults = {"seasonal_naive", "catboost"}
     for i, model in enumerate(_ALL_MODELS):
         with cols[i]:
-            if st.checkbox(_MODEL_LABELS[model], value=model in defaults, key=f"model_{model}"):
+            checked = st.checkbox(_MODEL_LABELS[model], value=model in defaults, key=f"model_{model}")
+            if model == "catboost_per_panel":
+                st.caption("Медленно")
+            if checked:
                 selected.append(model)
 
     cb_iterations = 1000
     cb_lr = 0.03
     cb_depth = 6
-    if "catboost" in selected:
+    if "catboost" in selected or "catboost_per_panel" in selected:
         with st.expander("Настройки CatBoost"):
             cb_iterations = st.number_input(
                 "iterations", min_value=50, max_value=5000, step=50,
@@ -114,18 +120,38 @@ def _render_config() -> dict:
         use_hyperopt = st.toggle("Hyperopt (Optuna)", value=False, key="automl_hyperopt")
 
     n_trials = 30
+    hyperopt_timeout = None
     if use_hyperopt:
-        n_trials = st.number_input(
-            "n_trials", min_value=5, max_value=500, step=5,
-            value=st.session_state.get("automl_n_trials", 30), key="automl_n_trials",
-        )
-        st.caption("Значительно увеличивает время обучения CatBoost")
+        col_trials, col_timeout = st.columns(2)
+        with col_trials:
+            n_trials = st.number_input(
+                "n_trials", min_value=1, max_value=500, step=5,
+                value=st.session_state.get("automl_n_trials", 30), key="automl_n_trials",
+                help="Количество попыток Optuna",
+            )
+        with col_timeout:
+            use_timeout = st.checkbox(
+                "Таймаут (мин)", value=st.session_state.get("automl_hyperopt_timeout") is not None,
+                key="automl_use_timeout",
+            )
+            if use_timeout:
+                timeout_min = st.number_input(
+                    "минут", min_value=1, max_value=120, step=1,
+                    value=max(1, (st.session_state.get("automl_hyperopt_timeout") or 300) // 60),
+                    key="automl_timeout_min", label_visibility="collapsed",
+                )
+                hyperopt_timeout = int(timeout_min) * 60
+                st.session_state["automl_hyperopt_timeout"] = hyperopt_timeout
+            else:
+                st.session_state["automl_hyperopt_timeout"] = None
+        st.caption("Optuna остановится при достижении n_trials **или** таймаута (что наступит раньше)")
 
     return {
         "models": selected,
         "selection_metric": metric,
         "use_hyperopt": use_hyperopt,
         "n_trials": int(n_trials),
+        "hyperopt_timeout": hyperopt_timeout,
         "catboost_params": {"iterations": int(cb_iterations), "learning_rate": float(cb_lr), "depth": int(cb_depth)},
         "autoarima_approximation": bool(autoarima_approx),
     }
@@ -439,9 +465,14 @@ def render() -> None:
 
     st.title("Моделирование")
 
-    # Если уже есть результат automl — показываем результаты
-    if automl_result and not st.session_state.get("automl_job_id"):
+    # Если уже есть результат automl — показываем результаты (если не запрошен перезапуск)
+    rerun_key = f"automl_rerun_{project_id}"
+    if automl_result and not st.session_state.get("automl_job_id") and not st.session_state.get(rerun_key):
         _render_results(project, automl_result, split_result)
+        st.divider()
+        if st.button("🔄 Перезапустить моделирование", use_container_width=False):
+            st.session_state[rerun_key] = True
+            st.rerun()
         return
 
     # Если идёт polling — показываем прогресс
@@ -518,6 +549,7 @@ def render() -> None:
                     use_hyperopt=cfg["use_hyperopt"],
                     freq=effective_freq,
                     n_trials=cfg["n_trials"],
+                    hyperopt_timeout=cfg["hyperopt_timeout"],
                     catboost_params=cfg["catboost_params"],
                     autoarima_approximation=cfg["autoarima_approximation"],
                 )
@@ -526,4 +558,5 @@ def render() -> None:
                 return
         st.session_state.automl_job_id = str(job["id"])
         st.session_state.automl_models = cfg["models"]
+        st.session_state.pop(rerun_key, None)
         st.rerun()

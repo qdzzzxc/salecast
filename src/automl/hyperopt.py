@@ -13,6 +13,7 @@ def tune_catboost(
     splits: Splits[pd.DataFrame],
     settings: Settings,
     n_trials: int = 30,
+    timeout: int | None = None,
 ) -> CatBoostParameters:
     """Подбирает гиперпараметры CatBoost с помощью Optuna, минимизируя MAPE на val.
 
@@ -53,7 +54,7 @@ def tune_catboost(
         return val_evals[0].overall_metrics.mape
 
     study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
+    study.optimize(objective, n_trials=n_trials, timeout=timeout, show_progress_bar=False)
 
     best = study.best_params
     logger.info(f"Optuna best MAPE: {study.best_value:.4f}, params: {best}")
