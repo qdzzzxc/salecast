@@ -97,6 +97,7 @@ class AutoMLRunConfig(BaseModel):
     selection_metric: str = "mape"
     use_hyperopt: bool = False
     n_trials: int = 30
+    hyperopt_timeout: int | None = None  # таймаут Optuna в секундах (None = без ограничения)
     freq: str | None = None  # None = автоопределение из данных
     catboost_params: CatBoostRunParams = CatBoostRunParams()
     autoarima_approximation: bool = True
@@ -144,6 +145,7 @@ async def run_automl(
         config.use_hyperopt,
         config.freq,
         config.n_trials,
+        config.hyperopt_timeout,
         config.catboost_params.model_dump(),
         config.autoarima_approximation,
     )

@@ -165,6 +165,7 @@ def run_automl(
     use_hyperopt: bool,
     freq: str | None = None,
     n_trials: int = 30,
+    hyperopt_timeout: int | None = None,
     catboost_params: dict | None = None,
     autoarima_approximation: bool = True,
 ) -> dict:
@@ -220,10 +221,11 @@ def run_automl(
             )
 
             if use_hyperopt and "catboost" in models:
-                _add_step(session, job, "hyperopt", f"Hyperopt CatBoost ({n_trials} trials)")
+                timeout_label = f", timeout {hyperopt_timeout}s" if hyperopt_timeout else ""
+                _add_step(session, job, "hyperopt", f"Hyperopt CatBoost ({n_trials} trials{timeout_label})")
                 redis_client.xadd(stream_key, {"type": "hyperopt_start", "n_trials": str(n_trials)})
                 try:
-                    best_cb_params = tune_catboost(splits, settings, n_trials=n_trials)
+                    best_cb_params = tune_catboost(splits, settings, n_trials=n_trials, timeout=hyperopt_timeout)
                     catboost_params = best_cb_params.model_dump()
                     redis_client.xadd(stream_key, {"type": "hyperopt_done"})
                     logger.info("Hyperopt завершён: %s", catboost_params)

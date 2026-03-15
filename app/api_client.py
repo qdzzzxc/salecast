@@ -119,6 +119,7 @@ async def _run_automl(
     use_hyperopt: bool,
     freq: str | None = None,
     n_trials: int = 30,
+    hyperopt_timeout: int | None = None,
     catboost_params: dict | None = None,
     autoarima_approximation: bool = True,
 ) -> dict[str, Any]:
@@ -130,6 +131,8 @@ async def _run_automl(
         "n_trials": n_trials,
         "autoarima_approximation": autoarima_approximation,
     }
+    if hyperopt_timeout is not None:
+        payload["hyperopt_timeout"] = hyperopt_timeout
     if freq is not None:
         payload["freq"] = freq
     if catboost_params is not None:
@@ -150,13 +153,14 @@ def run_automl(
     use_hyperopt: bool,
     freq: str | None = None,
     n_trials: int = 30,
+    hyperopt_timeout: int | None = None,
     catboost_params: dict | None = None,
     autoarima_approximation: bool = True,
 ) -> dict[str, Any]:
     """Запускает AutoML (синхронная обёртка)."""
     return _run(_run_automl(
         project_id, models, selection_metric, use_hyperopt,
-        freq, n_trials, catboost_params, autoarima_approximation,
+        freq, n_trials, hyperopt_timeout, catboost_params, autoarima_approximation,
     ))
 
 
