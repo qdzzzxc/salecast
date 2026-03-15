@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from celery_app import celery
 from src.automl.base import ModelCancelledError
 from src.automl.hyperopt import tune_catboost
-from src.automl.models import CatBoostForecastModel, SeasonalNaiveForecastModel, StatsForecastModel
+from src.automl.models import CatBoostForecastModel, CatBoostPerPanelForecastModel, SeasonalNaiveForecastModel, StatsForecastModel
 from src.automl.selector import _get_metric_value
 from src.automl.ts_utils import get_downstream_lags, infer_ts_config, ts_config_from_freq
 from src.configs.settings import ColumnConfig, Settings
@@ -117,6 +117,9 @@ def _build_model(
     if model_type == "catboost":
         params = CatBoostParameters(**(catboost_params or {}))
         return CatBoostForecastModel(params=params)
+    if model_type == "catboost_per_panel":
+        params = CatBoostParameters(**(catboost_params or {}))
+        return CatBoostPerPanelForecastModel(params=params)
     if model_type == "autoarima":
         return StatsForecastModel(model_type=model_type, approximation=autoarima_approximation)
     return StatsForecastModel(model_type=model_type)
