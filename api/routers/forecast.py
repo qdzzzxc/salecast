@@ -23,6 +23,17 @@ _minio_access = os.getenv("MINIO_ROOT_USER", "sales_ts_prediction")
 _minio_secret = os.getenv("MINIO_ROOT_PASSWORD", "sales_ts_prediction")
 _minio_bucket = os.getenv("MINIO_BUCKET", "salecast")
 
+_redis_host = os.getenv("REDIS_HOST", "redis")
+_redis_port = int(os.getenv("REDIS_PORT", "6379"))
+_redis_password = os.getenv("REDIS_PASSWORD", "")
+
+
+async def _get_redis():
+    import redis.asyncio as aioredis
+    return aioredis.Redis(
+        host=_redis_host, port=_redis_port, password=_redis_password, decode_responses=True
+    )
+
 
 def _load_forecast_csv(key: str) -> pd.DataFrame:
     import boto3
@@ -164,3 +175,17 @@ async def download_forecast_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=forecast_{project_id}.csv"},
     )
+
+
+@router.get("/{project_id}/forecast_progress/{job_id}")
+async def get_forecast_progress(
+    project_id: uuid.UUID,
+    job_id: uuid.UUID,
+) -> list[dict[str, Any]]:
+    """Возвращает события прогресса прогноза из Redis Stream."""
+    redis = await _get_redis()
+    try:
+        events = await redis.xrange(f"stream:forecast:{job_id}", "-", "+")
+        return [fields for _, fields in events]
+    finally:
+        await redis.aclose()

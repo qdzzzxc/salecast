@@ -1,7 +1,11 @@
+from collections.abc import Callable
+
+import numpy as np
 import pandas as pd
 from pydantic import BaseModel
 
 from src.automl.base import BaseForecastModel, CancelFn, ModelCancelledError, ProgressFn
+from src.automl.ts_utils import next_dates
 from src.configs.settings import Settings
 from src.custom_types import ModelResult, Splits
 from src.seasonal_naive_utilities.evaluate import evaluate_seasonal_naive
@@ -54,3 +58,37 @@ class SeasonalNaiveForecastModel(BaseForecastModel):
             evaluation=evaluation,
             params=_EmptyParams(),
         )
+
+    def forecast_future(
+        self,
+        full_df: pd.DataFrame,
+        horizon: int,
+        settings: Settings,
+        on_training_done: Callable[[], None] | None = None,
+        on_forecast_step: Callable[[int, int], None] | None = None,
+    ) -> pd.DataFrame:
+        """Обучает модель на полных данных и строит прогноз на horizon точек вперёд."""
+        from src.seasonal_naive_utilities.seasonal_naive_model import SeasonalNaiveModel
+
+        panel_col = settings.columns.id
+        date_col = settings.columns.date
+        value_col = settings.columns.main_target
+        period = self.seasonal_period if self.seasonal_period is not None else settings.ts.season_length
+
+        model = SeasonalNaiveModel(seasonal_period=period)
+        model.fit(full_df, panel_col, value_col)
+
+        if on_training_done:
+            on_training_done()
+
+        rows = []
+        for panel_id, group in full_df.groupby(panel_col):
+            future = next_dates(group[date_col], horizon)
+            rows.extend({panel_col: panel_id, date_col: d, value_col: np.nan} for d in future)
+
+        future_df = pd.DataFrame(rows)
+        preds = model.predict(future_df, panel_col, value_col, is_train=False)
+        future_df["forecast"] = np.maximum(preds, 0)
+        future_df["panel_id"] = future_df[panel_col].astype(str)
+        future_df["date"] = pd.to_datetime(future_df[date_col]).dt.strftime("%Y-%m-%d")
+        return future_df[["panel_id", "date", "forecast"]]

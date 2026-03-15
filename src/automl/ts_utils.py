@@ -66,3 +66,13 @@ def get_downstream_lags(freq: str) -> list[int]:
     """Возвращает список лагов для downstream-модели в зависимости от частоты."""
     base = _normalize_freq(freq)
     return _FREQ_TO_LAGS.get(base, [1, 2, 3, 6, 12])
+
+
+def next_dates(dates: pd.Series, n: int) -> list[pd.Timestamp]:
+    """Генерирует n следующих дат на основе частоты ряда."""
+    sorted_dates = pd.to_datetime(dates).sort_values().drop_duplicates()
+    freq = pd.infer_freq(sorted_dates)
+    if freq:
+        return pd.date_range(sorted_dates.iloc[-1], periods=n + 1, freq=freq)[1:].tolist()
+    delta = sorted_dates.diff().dropna().median()
+    return [sorted_dates.iloc[-1] + delta * (i + 1) for i in range(n)]

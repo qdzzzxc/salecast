@@ -171,6 +171,17 @@ def get_automl_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
     return _run(_get_automl_progress(project_id, job_id))
 
 
+async def _get_forecast_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{_API_URL}/projects/{project_id}/forecast_progress/{job_id}") as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_forecast_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
+    return _run(_get_forecast_progress(project_id, job_id))
+
+
 async def _get_panels_data(project_id: str, ids: list[str]) -> list[dict]:
     """Загружает данные панелей из API."""
     async with aiohttp.ClientSession() as session:
