@@ -40,7 +40,7 @@ def _render_config(automl_result: dict) -> tuple[str, int, list[str] | None]:
             key="forecast_model",
         )
     with col2:
-        horizon = st.number_input("Горизонт (точек)", min_value=1, max_value=60, value=6, step=1, key="forecast_horizon")
+        horizon = st.number_input("Горизонт (точек)", min_value=1, value=6, step=1, key="forecast_horizon")
 
     return model_name, int(horizon), None
 
