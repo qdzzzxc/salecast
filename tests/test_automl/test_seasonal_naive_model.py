@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -53,3 +55,61 @@ class TestSeasonalNaiveModel:
 
         test_eval = next(s for s in result.evaluation.splits if s.split_name == "test")
         assert np.all(test_eval.y_pred == 0.0)
+
+
+class TestSeasonalNaiveForecastFuture:
+    HORIZON = 3
+
+    def test_returns_dataframe(
+        self, full_df: pd.DataFrame, sample_settings: Settings
+    ) -> None:
+        """forecast_future возвращает DataFrame с нужными колонками."""
+        model = SeasonalNaiveForecastModel()
+        result = model.forecast_future(full_df, self.HORIZON, sample_settings)
+        assert isinstance(result, pd.DataFrame)
+        assert set(result.columns) == {"panel_id", "date", "forecast"}
+
+    def test_correct_shape(
+        self, full_df: pd.DataFrame, sample_settings: Settings
+    ) -> None:
+        """Количество строк = n_panels × horizon."""
+        model = SeasonalNaiveForecastModel()
+        result = model.forecast_future(full_df, self.HORIZON, sample_settings)
+        n_panels = full_df[sample_settings.columns.id].nunique()
+        assert len(result) == n_panels * self.HORIZON
+
+    def test_no_negative_values(
+        self, full_df: pd.DataFrame, sample_settings: Settings
+    ) -> None:
+        """Прогноз не содержит отрицательных значений."""
+        model = SeasonalNaiveForecastModel()
+        result = model.forecast_future(full_df, self.HORIZON, sample_settings)
+        assert (result["forecast"] >= 0).all()
+
+    def test_dates_after_last_training_date(
+        self, full_df: pd.DataFrame, sample_settings: Settings
+    ) -> None:
+        """Все даты прогноза строго после последней даты в full_df."""
+        model = SeasonalNaiveForecastModel()
+        result = model.forecast_future(full_df, self.HORIZON, sample_settings)
+        last_date = pd.to_datetime(full_df[sample_settings.columns.date]).max()
+        forecast_dates = pd.to_datetime(result["date"])
+        assert (forecast_dates > last_date).all()
+
+    def test_on_training_done_called_once(
+        self, full_df: pd.DataFrame, sample_settings: Settings
+    ) -> None:
+        """on_training_done вызывается ровно один раз."""
+        callback = MagicMock()
+        model = SeasonalNaiveForecastModel()
+        model.forecast_future(full_df, self.HORIZON, sample_settings, on_training_done=callback)
+        callback.assert_called_once()
+
+    def test_on_forecast_step_not_called(
+        self, full_df: pd.DataFrame, sample_settings: Settings
+    ) -> None:
+        """SeasonalNaive предсказывает одним вызовом — on_forecast_step не вызывается."""
+        callback = MagicMock()
+        model = SeasonalNaiveForecastModel()
+        model.forecast_future(full_df, self.HORIZON, sample_settings, on_forecast_step=callback)
+        callback.assert_not_called()
