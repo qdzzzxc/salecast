@@ -217,7 +217,6 @@ class CatBoostPerPanelForecastModel(BaseForecastModel):
     """CatBoost модель, обучающая отдельный регрессор для каждой панели."""
 
     name: str = "catboost_per_panel"
-    MIN_TRAIN_POINTS: int = 12
 
     def __init__(self, params: CatBoostParameters | None = None) -> None:
         """Инициализирует модель с заданными параметрами."""
@@ -256,7 +255,6 @@ class CatBoostPerPanelForecastModel(BaseForecastModel):
         splits_acc: dict[str, list[tuple[pd.DataFrame, np.ndarray]]] = {
             "train": [], "val": [], "test": []
         }
-        skipped = 0
 
         for i, panel_id in enumerate(panels):
             if cancel_fn and cancel_fn():
@@ -270,13 +268,6 @@ class CatBoostPerPanelForecastModel(BaseForecastModel):
             train_feat = full_features[
                 panel_mask & (full_features[_SPLIT_COL] == "train")
             ].drop(columns=[_SPLIT_COL])
-
-            if len(train_feat) < self.MIN_TRAIN_POINTS:
-                logger.warning(
-                    f"Панель {panel_id}: {len(train_feat)} точек < {self.MIN_TRAIN_POINTS}, пропущена"
-                )
-                skipped += 1
-                continue
 
             val_feat = None
             if splits.val is not None:
@@ -318,13 +309,6 @@ class CatBoostPerPanelForecastModel(BaseForecastModel):
                 from src.catboost_utilities.evaluate import _prepare_predictions
                 result_df, y_pred = _prepare_predictions(model, split_df, settings, scalers)
                 splits_acc[split_name].append((result_df, y_pred))
-
-        if skipped == n_panels:
-            raise ValueError(
-                f"Все {n_panels} панелей пропущены: в train < {self.MIN_TRAIN_POINTS} точек"
-            )
-        if skipped > 0:
-            logger.warning(f"Пропущено {skipped}/{n_panels} панелей из-за недостатка данных")
 
         splits_data = {
             split_name: (
@@ -378,13 +362,6 @@ class CatBoostPerPanelForecastModel(BaseForecastModel):
                 on_forecast_step(panel_i + 1, n_panels)
 
             panel_df = full_df[full_df[panel_col] == panel_id].copy()
-
-            if len(panel_df) < self.MIN_TRAIN_POINTS:
-                logger.warning(
-                    f"Панель {panel_id}: {len(panel_df)} точек < {self.MIN_TRAIN_POINTS}, "
-                    "прогноз не строится"
-                )
-                continue
 
             features_df = build_monthly_features(panel_df, forecast_settings, disable_tqdm=True)
             drop_cols = {value_col, panel_col, date_col}

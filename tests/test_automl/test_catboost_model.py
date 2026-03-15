@@ -218,26 +218,22 @@ class TestCatBoostPerPanelModel:
         with pytest.raises(ModelCancelledError):
             model.fit_evaluate(sample_splits, sample_settings, cancel_fn=lambda: True)
 
-    def test_skips_panels_with_too_few_points(self, sample_settings: Settings) -> None:
-        """Панель с < MIN_TRAIN_POINTS точек в train пропускается."""
-        rng = np.random.default_rng(0)
-        dates = pd.date_range("2021-01-01", periods=36, freq="MS")
-        # Одна нормальная панель (36 точек), одна короткая (5 точек)
-        normal = pd.DataFrame({"article": "A", "date": dates, "sales": rng.uniform(5, 50, 36)})
-        short_dates = dates[:5]
-        short = pd.DataFrame({"article": "B", "date": short_dates, "sales": rng.uniform(5, 50, 5)})
-        all_df = pd.concat([normal, short], ignore_index=True)
-        train = all_df[all_df["date"] < "2023-07-01"].copy()
-        val = all_df[(all_df["date"] >= "2023-07-01") & (all_df["date"] < "2023-10-01")].copy()
-        test = all_df[all_df["date"] >= "2023-10-01"].copy()
-        splits = Splits(train=train, val=val, test=test)
-
-        model = CatBoostPerPanelForecastModel(
-            params=CatBoostParameters(iterations=10, depth=2, verbose=False)
-        )
-        result = model.fit_evaluate(splits, sample_settings)
-        # Только нормальная панель даёт предсказания
-        assert result is not None
+    def test_each_panel_gets_own_model(
+        self,
+        sample_splits: Splits[pd.DataFrame],
+        sample_settings: Settings,
+        fast_params: CatBoostParameters,
+    ) -> None:
+        """Каждая панель обучает свою модель — итоговые метрики содержат все панели."""
+        model = CatBoostPerPanelForecastModel(params=fast_params)
+        result = model.fit_evaluate(sample_splits, sample_settings)
+        panel_ids_in_result = {
+            p.panel_id
+            for split in result.evaluation.splits
+            for p in split.panel_metrics
+        }
+        panel_ids_in_train = set(sample_splits.train[sample_settings.columns.id].astype(str))
+        assert panel_ids_in_result == panel_ids_in_train
 
 
 class TestCatBoostPerPanelForecastFuture:
