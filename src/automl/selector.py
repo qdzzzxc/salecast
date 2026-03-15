@@ -4,7 +4,7 @@ import pandas as pd
 
 from src.automl.base import BaseForecastModel
 from src.automl.config import AutoMLConfig
-from src.automl.models.catboost_model import CatBoostForecastModel
+from src.automl.models.catboost_model import CatBoostForecastModel, CatBoostPerPanelForecastModel
 from src.automl.models.seasonal_naive_model import SeasonalNaiveForecastModel
 from src.automl.models.statsforecast_model import StatsForecastModel
 from src.configs.settings import Settings
@@ -90,6 +90,8 @@ def _build_model(
         return SeasonalNaiveForecastModel()
     if model_type == "catboost":
         return CatBoostForecastModel(params=catboost_params)
+    if model_type == "catboost_per_panel":
+        return CatBoostPerPanelForecastModel(params=catboost_params)
     if model_type in ("autoarima", "autoets", "autotheta"):
         return StatsForecastModel(model_type=model_type)
     raise ValueError(f"Неизвестный тип модели: {model_type}")
