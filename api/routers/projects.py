@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from api.database import get_db
 from api.models import Job, Project
-from api.storage import upload_file
+from api.storage import delete_prefix, upload_file
 from worker.tasks.automl import run_preprocessing
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -183,7 +183,7 @@ async def get_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db))
 
 @router.delete("/{project_id}", status_code=204)
 async def delete_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Response:
-    """Удаляет проект и все связанные задачи."""
+    """Удаляет проект, связанные задачи и все файлы в MinIO."""
     result = await db.execute(select(Project).where(Project.id == project_id))
     project = result.scalar_one_or_none()
     if project is None:
@@ -191,4 +191,8 @@ async def delete_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_d
     await db.execute(delete(Job).where(Job.project_id == project_id))
     await db.execute(delete(Project).where(Project.id == project_id))
     await db.commit()
+    try:
+        await delete_prefix(f"projects/{project_id}/")
+    except Exception:
+        pass
     return Response(status_code=204)
