@@ -14,28 +14,21 @@ _DEMO_PROJECTS = [
 ]
 
 
-def _ensure_demo_projects() -> None:
-    """Создаёт демо-проекты при первом запуске, если они ещё не существуют."""
-    if st.session_state.get("demo_initialized"):
-        return
-    try:
-        existing_names = {p["name"] for p in list_projects()}
-        for name, filename in _DEMO_PROJECTS:
-            if name not in existing_names:
-                csv_path = _EXAMPLES_DIR / filename
-                if csv_path.exists():
-                    create_project(
-                        name=name,
-                        file_bytes=csv_path.read_bytes(),
-                        filename=filename,
-                        panel_col="article",
-                        date_col="date",
-                        value_col="sales",
-                    )
-        st.session_state["demo_initialized"] = True
-        st.rerun()
-    except Exception:
-        pass  # API ещё не готов — попробуем при следующем рендере
+def _create_demo_projects() -> None:
+    """Создаёт демо-проекты (только те, которых ещё нет по имени)."""
+    existing_names = {p["name"] for p in list_projects()}
+    for name, filename in _DEMO_PROJECTS:
+        if name not in existing_names:
+            csv_path = _EXAMPLES_DIR / filename
+            if csv_path.exists():
+                create_project(
+                    name=name,
+                    file_bytes=csv_path.read_bytes(),
+                    filename=filename,
+                    panel_col="article",
+                    date_col="date",
+                    value_col="sales",
+                )
 
 st.set_page_config(
     page_title="Salecast",
@@ -45,7 +38,6 @@ st.set_page_config(
 )
 
 init_state()
-_ensure_demo_projects()
 
 
 def _project_icon(project: dict) -> str:
@@ -146,16 +138,14 @@ def _render_sidebar() -> None:
             st.divider()
             if st.button("↺ Сбросить демо-проекты", use_container_width=True):
                 try:
-                    for p in list_projects():
-                        if p["name"].startswith("Demo:"):
-                            delete_project(str(p["id"]))
+                    demo_ids = {str(p["id"]) for p in (projects or []) if p["name"].startswith("Demo:")}
+                    for pid in demo_ids:
+                        delete_project(pid)
                     current = get_current_project()
-                    if current and str(current.get("project_id", current.get("id", ""))) in {
-                        str(p["id"]) for p in (projects or []) if p["name"].startswith("Demo:")
-                    }:
+                    if current and str(current.get("project_id", current.get("id", ""))) in demo_ids:
                         st.session_state.current_project = None
                         set_page("upload")
-                    st.session_state.pop("demo_initialized", None)
+                    _create_demo_projects()
                 except Exception as e:
                     st.error(f"Ошибка: {e}")
                 st.rerun()
