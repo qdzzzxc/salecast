@@ -217,7 +217,7 @@ class CatBoostPerPanelForecastModel(BaseForecastModel):
     """CatBoost модель, обучающая отдельный регрессор для каждой панели."""
 
     name: str = "catboost_per_panel"
-    MIN_TRAIN_POINTS: int = 24
+    MIN_TRAIN_POINTS: int = 12
 
     def __init__(self, params: CatBoostParameters | None = None) -> None:
         """Инициализирует модель с заданными параметрами."""
