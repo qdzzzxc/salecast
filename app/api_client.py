@@ -309,9 +309,15 @@ async def _run_clustering(
     project_id: str,
     n_clusters: int = 5,
     method: str = "kmeans",
+    use_mstl: bool = False,
+    feature_mode: str = "all",
 ) -> dict[str, Any]:
     """Запускает кластеризацию через API."""
-    payload = {"n_clusters": n_clusters, "method": method}
+    payload: dict = {"n_clusters": n_clusters, "method": method}
+    if use_mstl:
+        payload["use_mstl"] = True
+    if feature_mode != "all":
+        payload["feature_mode"] = feature_mode
     async with aiohttp.ClientSession() as session:
         async with session.post(
             f"{_API_URL}/projects/{project_id}/run_clustering",
@@ -321,9 +327,15 @@ async def _run_clustering(
             return await resp.json()
 
 
-def run_clustering(project_id: str, n_clusters: int = 5, method: str = "kmeans") -> dict[str, Any]:
+def run_clustering(
+    project_id: str,
+    n_clusters: int = 5,
+    method: str = "kmeans",
+    use_mstl: bool = False,
+    feature_mode: str = "all",
+) -> dict[str, Any]:
     """Запускает кластеризацию (синхронная обёртка)."""
-    return _run(_run_clustering(project_id, n_clusters, method))
+    return _run(_run_clustering(project_id, n_clusters, method, use_mstl, feature_mode))
 
 
 async def _get_cluster_data(project_id: str) -> dict[str, Any]:

@@ -13,10 +13,13 @@ def extract_panel_features(
     df: pd.DataFrame,
     panel_col: str,
     value_col: str,
+    use_mstl: bool = False,
+    freq: str = "MS",
 ) -> pd.DataFrame:
     """Извлекает нормализованные признаки TS для каждой панели.
 
-    Расширяет extract_features_for_groups добавлением autocorr_lag12 (сезонность)
+    Расширяет extract_features_for_groups добавлением autocorr_lag12 (сезонность),
+    опционально MSTL seasonality_strength / trend_strength,
     и StandardScaler-нормализацией для корректной кластеризации.
 
     Returns:
@@ -29,6 +32,13 @@ def extract_panel_features(
         autocorr12[panel_id] = _safe_autocorr(group[value_col].values, lag=12)
     features_df["autocorr_lag12"] = pd.Series(autocorr12)
     features_df["autocorr_lag12"] = features_df["autocorr_lag12"].fillna(0.0)
+
+    if use_mstl:
+        from src.mstl_features import extract_mstl_features
+        mstl_df = extract_mstl_features(df, panel_col, value_col, freq=freq)
+        # join по индексу — панели, для которых MSTL не посчитался, получат NaN → заполним 0
+        features_df = features_df.join(mstl_df, how="left")
+        features_df = features_df.fillna(0.0)
 
     scaler = StandardScaler()
     scaled = scaler.fit_transform(features_df.values)

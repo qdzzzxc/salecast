@@ -81,6 +81,9 @@ def run_clustering(
     value_col: str,
     n_clusters: int = 5,
     method: str = "kmeans",
+    use_mstl: bool = False,
+    feature_mode: str = "all",
+    freq: str = "MS",
 ) -> dict:
     """Кластеризует панели по TS-признакам, сохраняет результаты в MinIO."""
     from api.models import Job
@@ -97,8 +100,27 @@ def run_clustering(
             train_df = _load_csv(split_info["train_key"])
             train_df[date_col] = pd.to_datetime(train_df[date_col])
 
-            _add_step(session, job, "features", "Извлечение признаков временных рядов")
-            features_df = extract_panel_features(train_df, panel_col, value_col)
+            if feature_mode == "seasonal":
+                _add_step(session, job, "features", "MSTL-декомпозиция → сезонные вектора")
+                from src.mstl_features import extract_seasonal_vectors
+                raw_features = extract_seasonal_vectors(
+                    train_df, panel_col, value_col, freq=freq,
+                )
+                from sklearn.preprocessing import StandardScaler
+                scaler = StandardScaler()
+                scaled = scaler.fit_transform(raw_features.values)
+                features_df = pd.DataFrame(
+                    scaled, index=raw_features.index, columns=raw_features.columns,
+                )
+            else:
+                feat_msg = "Извлечение признаков TS"
+                if use_mstl:
+                    feat_msg += " + MSTL"
+                _add_step(session, job, "features", feat_msg)
+                features_df = extract_panel_features(
+                    train_df, panel_col, value_col,
+                    use_mstl=use_mstl, freq=freq,
+                )
 
             silhouette_scores: dict[str, float] | None = None
             best_k: int | None = None
