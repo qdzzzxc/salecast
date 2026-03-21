@@ -30,6 +30,7 @@ def _create_demo_projects() -> None:
                     value_col="sales",
                 )
 
+
 st.set_page_config(
     page_title="Salecast",
     page_icon="📈",
@@ -93,7 +94,12 @@ def _render_sidebar() -> None:
 
                 col_name, col_del = st.columns([5, 1])
                 with col_name:
-                    if st.button(label, use_container_width=True, key=f"open_{project['id']}", disabled=is_active):
+                    if st.button(
+                        label,
+                        use_container_width=True,
+                        key=f"open_{project['id']}",
+                        disabled=is_active,
+                    ):
                         if job.get("result"):
                             full_job = {**job, "project_id": project["id"]}
                             set_project(full_job)
@@ -114,11 +120,19 @@ def _render_sidebar() -> None:
                             is_preprocessing = bool(step_names & {"filtration", "diagnostics"})
                             if is_preprocessing:
                                 st.session_state["polling_job_id"] = job_id
-                                st.session_state.current_project = {**project, "project_id": project["id"], "result": {}}
+                                st.session_state.current_project = {
+                                    **project,
+                                    "project_id": project["id"],
+                                    "result": {},
+                                }
                                 set_page("upload")
                             else:
                                 st.session_state["automl_job_id"] = job_id
-                                st.session_state.current_project = {**project, "project_id": project["id"], "result": {}}
+                                st.session_state.current_project = {
+                                    **project,
+                                    "project_id": project["id"],
+                                    "result": {},
+                                }
                                 set_page("automl")
                         else:
                             st.session_state.current_project = {**project}
@@ -137,16 +151,23 @@ def _render_sidebar() -> None:
             st.markdown("**Сервисы**")
             st.link_button("Flower (Celery)", "http://localhost:5555", use_container_width=True)
             st.link_button("RedisInsight", "http://localhost:5540", use_container_width=True)
-            st.link_button("Adminer (PostgreSQL)", "http://localhost:8080", use_container_width=True)
+            st.link_button(
+                "Adminer (PostgreSQL)", "http://localhost:8080", use_container_width=True
+            )
             st.link_button("MinIO Console", "http://localhost:9001", use_container_width=True)
             st.divider()
             if st.button("↺ Сбросить демо-проекты", use_container_width=True):
                 try:
-                    demo_ids = {str(p["id"]) for p in (projects or []) if p["name"].startswith("Demo:")}
+                    demo_ids = {
+                        str(p["id"]) for p in (projects or []) if p["name"].startswith("Demo:")
+                    }
                     for pid in demo_ids:
                         delete_project(pid)
                     current = get_current_project()
-                    if current and str(current.get("project_id", current.get("id", ""))) in demo_ids:
+                    if (
+                        current
+                        and str(current.get("project_id", current.get("id", ""))) in demo_ids
+                    ):
                         st.session_state.current_project = None
                         set_page("upload")
                     _create_demo_projects()
@@ -197,7 +218,7 @@ def _render_page() -> None:
         return
 
     if page in _STEP_LABELS:
-        result = (project.get("result") or {})
+        result = project.get("result") or {}
         _render_steps(page, result)
 
     if page == "quality":

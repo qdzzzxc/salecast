@@ -1,3 +1,4 @@
+from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -24,24 +25,24 @@ def _make_mock_pipeline(splits_or_df, id_col, date_col, target):
             last_date = group[ts_column].max()
             last_val = group["target"].iloc[-1]
             future_dates = pd.date_range(last_date, periods=prediction_length + 1, freq="MS")[1:]
-            for d in future_dates:
-                rows.append({"id": uid, "timestamp": d, "0.5": float(last_val)})
+            rows.extend({"id": uid, "timestamp": d, "0.5": float(last_val)} for d in future_dates)
         return pd.DataFrame(rows)
 
     pipeline.predict_df = mock_predict_df
     return pipeline
 
 
-@pytest.fixture()
-def mock_chronos(sample_splits, sample_settings):
+@pytest.fixture
+def mock_chronos(sample_splits, sample_settings) -> Generator[MagicMock]:
     """Патчит Chronos2Pipeline.from_pretrained."""
     cols = sample_settings.columns
     pipeline = _make_mock_pipeline(
-        sample_splits.train, cols.id, cols.date, cols.main_target,
+        sample_splits.train,
+        cols.id,
+        cols.date,
+        cols.main_target,
     )
-    with patch(
-        "chronos.Chronos2Pipeline"
-    ) as mock_cls:
+    with patch("chronos.Chronos2Pipeline") as mock_cls:
         mock_cls.from_pretrained.return_value = pipeline
         yield pipeline
 
@@ -124,7 +125,10 @@ class TestChronosForecastFuture:
     HORIZON = 2
 
     def test_returns_dataframe(
-        self, full_df, sample_settings, mock_chronos,
+        self,
+        full_df,
+        sample_settings,
+        mock_chronos,
     ) -> None:
         model = ChronosForecastModel()
         result = model.forecast_future(full_df, self.HORIZON, sample_settings)
@@ -132,7 +136,10 @@ class TestChronosForecastFuture:
         assert set(result.columns) == {"panel_id", "date", "forecast"}
 
     def test_correct_shape(
-        self, full_df, sample_settings, mock_chronos,
+        self,
+        full_df,
+        sample_settings,
+        mock_chronos,
     ) -> None:
         model = ChronosForecastModel()
         result = model.forecast_future(full_df, self.HORIZON, sample_settings)
@@ -140,14 +147,20 @@ class TestChronosForecastFuture:
         assert len(result) == n_panels * self.HORIZON
 
     def test_no_negative_values(
-        self, full_df, sample_settings, mock_chronos,
+        self,
+        full_df,
+        sample_settings,
+        mock_chronos,
     ) -> None:
         model = ChronosForecastModel()
         result = model.forecast_future(full_df, self.HORIZON, sample_settings)
         assert (result["forecast"] >= 0).all()
 
     def test_on_training_done_called(
-        self, full_df, sample_settings, mock_chronos,
+        self,
+        full_df,
+        sample_settings,
+        mock_chronos,
     ) -> None:
         callback = MagicMock()
         model = ChronosForecastModel()
@@ -156,29 +169,39 @@ class TestChronosForecastFuture:
 
 
 class TestAlignChronosPredictions:
-    def test_aligns_by_id_and_date(self):
-        pred_df = pd.DataFrame({
-            "id": ["A1", "A1", "A2", "A2"],
-            "timestamp": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-01-01", "2024-02-01"]),
-            "0.5": [10.0, 20.0, 30.0, 40.0],
-        })
-        target_df = pd.DataFrame({
-            "article": ["A2", "A2", "A1", "A1"],
-            "date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-01-01", "2024-02-01"]),
-        })
+    def test_aligns_by_id_and_date(self) -> None:
+        pred_df = pd.DataFrame(
+            {
+                "id": ["A1", "A1", "A2", "A2"],
+                "timestamp": pd.to_datetime(
+                    ["2024-01-01", "2024-02-01", "2024-01-01", "2024-02-01"]
+                ),
+                "0.5": [10.0, 20.0, 30.0, 40.0],
+            }
+        )
+        target_df = pd.DataFrame(
+            {
+                "article": ["A2", "A2", "A1", "A1"],
+                "date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-01-01", "2024-02-01"]),
+            }
+        )
         result = _align_chronos_predictions(pred_df, target_df, "article", "date")
         np.testing.assert_array_equal(result, [30.0, 40.0, 10.0, 20.0])
 
-    def test_missing_predictions_filled_with_zero(self):
-        pred_df = pd.DataFrame({
-            "id": ["A1"],
-            "timestamp": pd.to_datetime(["2024-01-01"]),
-            "0.5": [10.0],
-        })
-        target_df = pd.DataFrame({
-            "article": ["A1", "A1"],
-            "date": pd.to_datetime(["2024-01-01", "2024-02-01"]),
-        })
+    def test_missing_predictions_filled_with_zero(self) -> None:
+        pred_df = pd.DataFrame(
+            {
+                "id": ["A1"],
+                "timestamp": pd.to_datetime(["2024-01-01"]),
+                "0.5": [10.0],
+            }
+        )
+        target_df = pd.DataFrame(
+            {
+                "article": ["A1", "A1"],
+                "date": pd.to_datetime(["2024-01-01", "2024-02-01"]),
+            }
+        )
         result = _align_chronos_predictions(pred_df, target_df, "article", "date")
         assert result[0] == 10.0
         assert result[1] == 0.0

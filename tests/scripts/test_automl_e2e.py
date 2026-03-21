@@ -95,7 +95,9 @@ def _preprocess_raw(path: Path, settings: Settings) -> pd.DataFrame:
 
     df = drop_duplicates(df)
     df = sort_panel_by_date(df, panel_column=cols.id, date_column=cols.date)
-    df = aggregate_by_panel_date(df, panel_column=cols.id, date_column=cols.date, target_columns=[cols.main_target])
+    df = aggregate_by_panel_date(
+        df, panel_column=cols.id, date_column=cols.date, target_columns=[cols.main_target]
+    )
     df = expand_to_full_panel(df, panel_column=cols.id, date_column=cols.date)
     df[cols.main_target] = df[cols.main_target].fillna(0.0)
 
@@ -154,16 +156,20 @@ def _log_panel_stats(eval_results: EvaluationResults, split_name: str) -> None:
 def _log_comparison_table(result: AutoMLResult) -> None:
     rows = []
     for mr in result.all_results:
-        sel = next((s for s in mr.evaluation.splits if s.split_name == result.selection_split), None)
+        sel = next(
+            (s for s in mr.evaluation.splits if s.split_name == result.selection_split), None
+        )
         tst = next((s for s in mr.evaluation.splits if s.split_name == "test"), None)
-        rows.append({
-            "model": mr.name,
-            f"{result.selection_split}_mape": f"{sel.overall_metrics.mape:.4f}" if sel else "—",
-            f"{result.selection_split}_r2": f"{sel.overall_metrics.r2:.4f}" if sel else "—",
-            "test_mape": f"{tst.overall_metrics.mape:.4f}" if tst else "—",
-            "test_r2": f"{tst.overall_metrics.r2:.4f}" if tst else "—",
-            "best": "✓" if mr.name == result.best.name else "",
-        })
+        rows.append(
+            {
+                "model": mr.name,
+                f"{result.selection_split}_mape": f"{sel.overall_metrics.mape:.4f}" if sel else "—",
+                f"{result.selection_split}_r2": f"{sel.overall_metrics.r2:.4f}" if sel else "—",
+                "test_mape": f"{tst.overall_metrics.mape:.4f}" if tst else "—",
+                "test_r2": f"{tst.overall_metrics.r2:.4f}" if tst else "—",
+                "best": "✓" if mr.name == result.best.name else "",
+            }
+        )
     col_w = {k: max(len(k), max(len(str(r[k])) for r in rows)) for k in rows[0]}
     logger.info("  " + "  ".join(k.ljust(col_w[k]) for k in col_w))
     logger.info("  " + "  ".join("─" * col_w[k] for k in col_w))
@@ -188,7 +194,7 @@ def _save_visualizations(result: AutoMLResult, run_dir: Path, n: int = 3) -> Non
     for tag, panel_ids in [("best", best_ids), ("worst", worst_ids)]:
         for i, panel_id in enumerate(panel_ids):
             plot_panel_predictions(panel_id, best_eval, interactive=False)
-            fname = f"{tag}_panel_{i+1}_{panel_id}.png"
+            fname = f"{tag}_panel_{i + 1}_{panel_id}.png"
             plt.savefig(run_dir / fname, bbox_inches="tight", dpi=120)
             plt.close("all")
             mape_val = finite_test[finite_test["panel_id"] == panel_id]["mape"].values[0]
@@ -208,14 +214,25 @@ def run(models: list[str], use_hyperopt: bool, n_trials: int) -> None:
     _section("1. ЗАГРУЗКА И PREPROCESSING ДАННЫХ")
     _assert(RAW_DATA_PATH.exists(), f"Сырой файл существует: {RAW_DATA_PATH}")
     df = _preprocess_raw(RAW_DATA_PATH, settings)
-    logger.info("  После preprocessing: %d строк  %d артикулов", len(df), df[settings.columns.id].nunique())
-    logger.info("  Период: %s — %s", pd.to_datetime(df[settings.columns.date]).min().strftime("%Y-%m"), pd.to_datetime(df[settings.columns.date]).max().strftime("%Y-%m"))
+    logger.info(
+        "  После preprocessing: %d строк  %d артикулов", len(df), df[settings.columns.id].nunique()
+    )
+    logger.info(
+        "  Период: %s — %s",
+        pd.to_datetime(df[settings.columns.date]).min().strftime("%Y-%m"),
+        pd.to_datetime(df[settings.columns.date]).max().strftime("%Y-%m"),
+    )
 
     _section("2. ФИЛЬТРАЦИЯ ВРЕМЕННЫХ РЯДОВ")
     n_before = df[settings.columns.id].nunique()
     filtration_result = filter_time_series(df, settings.filtration)
     df_filtered = filtration_result.df
-    logger.info("  Артикулов до: %d  после: %d  удалено: %d", n_before, df_filtered[settings.columns.id].nunique(), filtration_result.total_dropped)
+    logger.info(
+        "  Артикулов до: %d  после: %d  удалено: %d",
+        n_before,
+        df_filtered[settings.columns.id].nunique(),
+        filtration_result.total_dropped,
+    )
     for step, count in filtration_result.summary().items():
         if count > 0:
             logger.info("    %s: %d dropped", step, count)
@@ -233,10 +250,16 @@ def run(models: list[str], use_hyperopt: bool, n_trials: int) -> None:
     _assert(splits.val is not None, "val split создан")
 
     _section("4. КОНФИГУРАЦИЯ AutoML")
-    config = AutoMLConfig(models=models, selection_metric="mape", use_hyperopt=use_hyperopt, n_trials=n_trials)
+    config = AutoMLConfig(
+        models=models, selection_metric="mape", use_hyperopt=use_hyperopt, n_trials=n_trials
+    )
     logger.info("  models:       %s", config.models)
     logger.info("  metric:       %s", config.selection_metric)
-    logger.info("  use_hyperopt: %s%s", config.use_hyperopt, f"  n_trials={config.n_trials}" if use_hyperopt else "")
+    logger.info(
+        "  use_hyperopt: %s%s",
+        config.use_hyperopt,
+        f"  n_trials={config.n_trials}" if use_hyperopt else "",
+    )
 
     _section("5. ЗАПУСК ModelSelector")
     t_sel = time.perf_counter()
@@ -254,7 +277,12 @@ def run(models: list[str], use_hyperopt: bool, n_trials: int) -> None:
     _log_comparison_table(result)
 
     _section("8. ЛУЧШАЯ МОДЕЛЬ — ДЕТАЛИ")
-    logger.info("  Победитель: %s  (по %s на %s)", result.best.name, result.selection_metric, result.selection_split)
+    logger.info(
+        "  Победитель: %s  (по %s на %s)",
+        result.best.name,
+        result.selection_metric,
+        result.selection_split,
+    )
     non_defaults = result.best.params.model_dump(exclude_defaults=True)
     logger.info("  Параметры: %s", non_defaults or "(defaults)")
     _log_panel_stats(result.best.evaluation, "val")
@@ -284,7 +312,9 @@ def run(models: list[str], use_hyperopt: bool, n_trials: int) -> None:
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="E2E тест AutoML пайплайна")
     parser.add_argument(
-        "--models", nargs="+", default=["seasonal_naive", "catboost"],
+        "--models",
+        nargs="+",
+        default=["seasonal_naive", "catboost"],
         choices=["seasonal_naive", "catboost", "autoarima", "autoets", "autotheta"],
         metavar="MODEL",
     )

@@ -47,3 +47,8 @@ neural = [
     "chronos-forecasting>=2.0",
 ]
 
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+]
+

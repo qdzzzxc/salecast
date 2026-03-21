@@ -35,6 +35,7 @@ def extract_panel_features(
 
     if use_mstl:
         from src.mstl_features import extract_mstl_features
+
         mstl_df = extract_mstl_features(df, panel_col, value_col, freq=freq)
         # join по индексу — панели, для которых MSTL не посчитался, получат NaN → заполним 0
         features_df = features_df.join(mstl_df, how="left")
@@ -69,10 +70,13 @@ def cluster_panels(
         labels = clusterer.fit_predict(features_df.values)
     elif method == "kmeans":
         from sklearn.cluster import KMeans
+
         km = KMeans(n_clusters=n_clusters, random_state=42, n_init="auto")
         labels = km.fit_predict(features_df.values)
     else:
-        raise ValueError(f"Неизвестный метод кластеризации: {method!r}. Доступны: 'kmeans', 'hdbscan'")
+        raise ValueError(
+            f"Неизвестный метод кластеризации: {method!r}. Доступны: 'kmeans', 'hdbscan'"
+        )
 
     result = pd.Series(labels, index=features_df.index, name="cluster_id")
     n_actual = result[result >= 0].nunique()
@@ -98,8 +102,9 @@ def cluster_panels_auto(
 
     upper = min(max_k, len(features_df) - 1)
     if upper < 2:
-        labels = pd.Series(np.zeros(len(features_df), dtype=int),
-                           index=features_df.index, name="cluster_id")
+        labels = pd.Series(
+            np.zeros(len(features_df), dtype=int), index=features_df.index, name="cluster_id"
+        )
         return labels, {1: 0.0}, 1
 
     scores: dict[int, float] = {}
@@ -112,11 +117,13 @@ def cluster_panels_auto(
         scores[k] = float(silhouette_score(data, k_labels))
         all_labels[k] = k_labels
 
-    best_k = max(scores, key=scores.get)
+    best_k = max(scores, key=lambda k: scores[k])
     labels = pd.Series(all_labels[best_k], index=features_df.index, name="cluster_id")
     logger.info(
         "KMeans auto: best_k=%d, silhouette=%.3f (range 2..%d)",
-        best_k, scores[best_k], upper,
+        best_k,
+        scores[best_k],
+        upper,
     )
     return labels, scores, best_k
 
@@ -132,7 +139,9 @@ def compute_umap_embedding(features_df: pd.DataFrame, random_state: int = 42) ->
     except ImportError as e:
         raise ImportError("umap-learn не установлен. Установите: uv add umap-learn") from e
 
-    reducer = umap.UMAP(n_components=2, random_state=random_state, n_neighbors=min(15, len(features_df) - 1))
+    reducer = umap.UMAP(
+        n_components=2, random_state=random_state, n_neighbors=min(15, len(features_df) - 1)
+    )
     return reducer.fit_transform(features_df.values)
 
 

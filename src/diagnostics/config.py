@@ -7,7 +7,9 @@ class DiagnosticsConfig(BaseModel):
     min_length_red: int = Field(default=12, description="Длина ряда ниже которой — red")
     min_length_yellow: int = Field(default=24, description="Длина ряда ниже которой — yellow")
 
-    max_zero_ratio_yellow: float = Field(default=0.2, description="Доля нулей выше которой — yellow")
+    max_zero_ratio_yellow: float = Field(
+        default=0.2, description="Доля нулей выше которой — yellow"
+    )
     max_zero_ratio_red: float = Field(default=0.5, description="Доля нулей выше которой — red")
 
     max_cv_yellow: float = Field(default=0.5, description="CV выше которого — yellow")

@@ -171,9 +171,7 @@ async def list_projects(db: AsyncSession = Depends(get_db)) -> list[ProjectSchem
 async def get_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> ProjectSchema:
     """Возвращает проект по ID с последним job."""
     result = await db.execute(
-        select(Project)
-        .options(selectinload(Project.jobs))
-        .where(Project.id == project_id)
+        select(Project).options(selectinload(Project.jobs)).where(Project.id == project_id)
     )
     project = result.scalar_one_or_none()
     if project is None:

@@ -1,5 +1,4 @@
 import pandas as pd
-import pytest
 
 from src.automl.ts_utils import _normalize_freq, get_downstream_lags, infer_ts_config, next_dates
 from src.configs.settings import TimeSeriesConfig
@@ -109,6 +108,7 @@ class TestGetDownstreamLags:
             lags = get_downstream_lags(freq)
             assert lags == sorted(lags)
 
+
 class TestNextDates:
     def test_returns_n_dates(self) -> None:
         dates = pd.Series(pd.date_range("2020-01-01", periods=24, freq="MS"))
@@ -135,11 +135,13 @@ class TestNextDates:
 
     def test_fallback_to_median_delta(self) -> None:
         """При нерегулярных датах использует медианный интервал."""
-        irregular = pd.Series([
-            pd.Timestamp("2020-01-01"),
-            pd.Timestamp("2020-02-01"),
-            pd.Timestamp("2020-03-02"),  # +1 день шум
-        ])
+        irregular = pd.Series(
+            [
+                pd.Timestamp("2020-01-01"),
+                pd.Timestamp("2020-02-01"),
+                pd.Timestamp("2020-03-02"),  # +1 день шум
+            ]
+        )
         result = next_dates(irregular, 2)
         assert len(result) == 2
         assert all(pd.Timestamp(d) > irregular.max() for d in result)

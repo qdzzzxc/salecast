@@ -16,7 +16,7 @@ def _concat(*dfs: pd.DataFrame) -> pd.DataFrame:
     return pd.concat(dfs, ignore_index=True)
 
 
-@pytest.fixture()
+@pytest.fixture
 def config() -> FiltrationConfig:
     """Дефолтный конфиг фильтрации."""
     return FiltrationConfig()
@@ -51,9 +51,7 @@ class TestEdgeZeros:
         result = filter_time_series(df, config)
         assert "a" in result.df["article"].values
 
-    def test_trimming_reduces_length_below_min_causes_drop(
-        self, config: FiltrationConfig
-    ) -> None:
+    def test_trimming_reduces_length_below_min_causes_drop(self, config: FiltrationConfig) -> None:
         """Если после трима длина < min_series_length, ряд отфильтровывается."""
         inner = _normal_values(10)
         values = [0.0] * 5 + inner + [0.0] * 5

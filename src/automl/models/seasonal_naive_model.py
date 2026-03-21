@@ -41,7 +41,9 @@ class SeasonalNaiveForecastModel(BaseForecastModel):
         if progress_fn:
             progress_fn("обучение...", 50.0)
 
-        period = self.seasonal_period if self.seasonal_period is not None else settings.ts.season_length
+        period = (
+            self.seasonal_period if self.seasonal_period is not None else settings.ts.season_length
+        )
         model = train_seasonal_naive(
             train_df=splits.train,
             val_df=splits.val,
@@ -73,7 +75,9 @@ class SeasonalNaiveForecastModel(BaseForecastModel):
         panel_col = settings.columns.id
         date_col = settings.columns.date
         value_col = settings.columns.main_target
-        period = self.seasonal_period if self.seasonal_period is not None else settings.ts.season_length
+        period = (
+            self.seasonal_period if self.seasonal_period is not None else settings.ts.season_length
+        )
 
         model = SeasonalNaiveModel(seasonal_period=period)
         model.fit(full_df, panel_col, value_col)
@@ -81,7 +85,7 @@ class SeasonalNaiveForecastModel(BaseForecastModel):
         if on_training_done:
             on_training_done()
 
-        rows = []
+        rows: list[dict] = []
         for panel_id, group in full_df.groupby(panel_col):
             future = next_dates(group[date_col], horizon)
             rows.extend({panel_col: panel_id, date_col: d, value_col: np.nan} for d in future)

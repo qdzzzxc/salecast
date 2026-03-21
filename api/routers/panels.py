@@ -76,9 +76,11 @@ async def get_panels_data(
 
     panels = []
     for panel_id, group in filtered.groupby(project.panel_col):
-        panels.append({
-            "panel_id": panel_id,
-            "dates": group[project.date_col].dt.strftime("%Y-%m-%d").tolist(),
-            "values": group[project.value_col].tolist(),
-        })
+        panels.append(
+            {
+                "panel_id": panel_id,
+                "dates": group[project.date_col].dt.strftime("%Y-%m-%d").tolist(),
+                "values": group[project.value_col].tolist(),
+            }
+        )
     return panels

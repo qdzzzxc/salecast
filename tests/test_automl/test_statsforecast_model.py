@@ -76,18 +76,14 @@ class TestStatsForecastFuture:
         assert isinstance(result, pd.DataFrame)
         assert set(result.columns) == {"panel_id", "date", "forecast"}
 
-    def test_correct_shape(
-        self, full_df: pd.DataFrame, sample_settings: Settings
-    ) -> None:
+    def test_correct_shape(self, full_df: pd.DataFrame, sample_settings: Settings) -> None:
         """Количество строк = n_panels × horizon."""
         model = StatsForecastModel(model_type="autoets")
         result = model.forecast_future(full_df, self.HORIZON, sample_settings)
         n_panels = full_df[sample_settings.columns.id].nunique()
         assert len(result) == n_panels * self.HORIZON
 
-    def test_no_negative_values(
-        self, full_df: pd.DataFrame, sample_settings: Settings
-    ) -> None:
+    def test_no_negative_values(self, full_df: pd.DataFrame, sample_settings: Settings) -> None:
         """Прогноз не содержит отрицательных значений."""
         model = StatsForecastModel(model_type="autoets")
         result = model.forecast_future(full_df, self.HORIZON, sample_settings)

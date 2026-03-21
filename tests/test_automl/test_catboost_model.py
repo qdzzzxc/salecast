@@ -10,7 +10,7 @@ from src.configs.settings import Settings
 from src.custom_types import CatBoostParameters, ModelResult, Splits
 
 
-@pytest.fixture()
+@pytest.fixture
 def fast_params() -> CatBoostParameters:
     """Быстрые параметры CatBoost для тестов."""
     return CatBoostParameters(iterations=50, depth=3, verbose=False)
@@ -162,7 +162,9 @@ class TestCatBoostForecastFuture:
         calls = []
         model = CatBoostForecastModel(params=fast_params)
         model.forecast_future(
-            full_df, self.HORIZON, sample_settings,
+            full_df,
+            self.HORIZON,
+            sample_settings,
             on_forecast_step=lambda i, n: calls.append((i, n)),
         )
         assert calls[0] == (1, self.HORIZON)
@@ -228,9 +230,7 @@ class TestCatBoostPerPanelModel:
         model = CatBoostPerPanelForecastModel(params=fast_params)
         result = model.fit_evaluate(sample_splits, sample_settings)
         panel_ids_in_result = {
-            p.panel_id
-            for split in result.evaluation.splits
-            for p in split.panel_metrics
+            p.panel_id for split in result.evaluation.splits for p in split.panel_metrics
         }
         panel_ids_in_train = set(sample_splits.train[sample_settings.columns.id].astype(str))
         assert panel_ids_in_result == panel_ids_in_train

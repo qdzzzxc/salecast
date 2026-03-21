@@ -7,11 +7,11 @@ class AutoMLConfig(BaseModel):
     """Конфигурация AutoML системы."""
 
     models: list[ModelType] = Field(
-        default=["seasonal_naive", "catboost"],
+        default=[ModelType.seasonal_naive, ModelType.catboost],
         description="Список моделей для сравнения",
     )
     selection_metric: MetricType = Field(
-        default="mape",
+        default=MetricType.mape,
         description="Метрика для выбора лучшей модели",
     )
     use_hyperopt: bool = Field(

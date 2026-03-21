@@ -202,9 +202,9 @@ def combine_panel_results(panel_results: list[EvaluationResults]) -> EvaluationR
                 all_split_evals.append(split_eval)
 
         if all_split_evals:
-            all_panels = []
-            all_y_true = []
-            all_y_pred = []
+            all_panels: list[PanelMetrics] = []
+            all_y_true: list[float] = []
+            all_y_pred: list[float] = []
 
             for split_eval in all_split_evals:
                 all_panels.extend(split_eval.panel_metrics)
@@ -217,8 +217,8 @@ def combine_panel_results(panel_results: list[EvaluationResults]) -> EvaluationR
                 split_name=split_name,
                 overall_metrics=overall_metrics,
                 panel_metrics=all_panels,
-                y_true=all_y_true,
-                y_pred=all_y_pred,
+                y_true=np.array(all_y_true),
+                y_pred=np.array(all_y_pred),
             )
             combined_splits.append(combined_split)
 

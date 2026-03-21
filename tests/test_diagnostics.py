@@ -15,37 +15,36 @@ from src.diagnostics.checks import (
 )
 
 
-@pytest.fixture()
+@pytest.fixture
 def default_config() -> DiagnosticsConfig:
     return DiagnosticsConfig()
 
 
-@pytest.fixture()
+@pytest.fixture
 def seasonal_series() -> np.ndarray:
     np.random.seed(0)
     t = np.arange(36)
     return 100 + 20 * np.sin(2 * np.pi * t / 12) + np.random.normal(0, 2, 36)
 
 
-@pytest.fixture()
+@pytest.fixture
 def random_walk_series() -> np.ndarray:
     np.random.seed(1)
     return np.cumsum(np.random.normal(0, 1, 40))
 
 
-@pytest.fixture()
+@pytest.fixture
 def panel_df() -> pd.DataFrame:
     np.random.seed(42)
-    rows = []
-    for article in [1, 2, 3]:
-        for i in range(30):
-            rows.append(
-                {
-                    "article": article,
-                    "date": pd.Timestamp("2021-01-01") + pd.DateOffset(months=i),
-                    "sales": float(np.random.poisson(50)),
-                }
-            )
+    rows = [
+        {
+            "article": article,
+            "date": pd.Timestamp("2021-01-01") + pd.DateOffset(months=i),
+            "sales": float(np.random.poisson(50)),
+        }
+        for article in [1, 2, 3]
+        for i in range(30)
+    ]
     return pd.DataFrame(rows)
 
 
@@ -250,7 +249,15 @@ class TestRunDiagnostics:
     def test_to_df_has_passed_columns(self, panel_df: pd.DataFrame) -> None:
         result = run_diagnostics(panel_df, "article", "date", "sales")
         df = result.to_df()
-        expected_checks = ["length", "zero_ratio", "cv", "autocorrelation", "stationarity", "seasonality", "trend"]
+        expected_checks = [
+            "length",
+            "zero_ratio",
+            "cv",
+            "autocorrelation",
+            "stationarity",
+            "seasonality",
+            "trend",
+        ]
         for check in expected_checks:
             assert f"{check}_passed" in df.columns
             assert f"{check}_value" in df.columns

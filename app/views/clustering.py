@@ -72,24 +72,24 @@ def _render_umap(umap_records: list[dict], panel_col: str) -> None:
     # Строим цветовую карту: кластеры → Plotly palette, -1 → серый
     clusters_sorted = sorted(df[df["cluster_id"] >= 0]["cluster_id"].unique())
     color_map = {
-        str(c): _CLUSTER_COLORS[i % len(_CLUSTER_COLORS)]
-        for i, c in enumerate(clusters_sorted)
+        str(c): _CLUSTER_COLORS[i % len(_CLUSTER_COLORS)] for i, c in enumerate(clusters_sorted)
     }
     if has_outliers:
         color_map["-1"] = _OUTLIER_COLOR
 
-    df["cluster_label"] = df["cluster_id"].apply(
-        lambda c: "Шум" if c == -1 else str(c)
-    )
+    df["cluster_label"] = df["cluster_id"].apply(lambda c: "Шум" if c == -1 else str(c))
 
     hover_cols = [panel_col] if panel_col in df.columns else None
     fig = px.scatter(
-        df, x="x", y="y", color="cluster_label",
+        df,
+        x="x",
+        y="y",
+        color="cluster_label",
         hover_data=hover_cols,
-        color_discrete_map={
-            ("Шум" if k == "-1" else k): v for k, v in color_map.items()
+        color_discrete_map={("Шум" if k == "-1" else k): v for k, v in color_map.items()},
+        category_orders={
+            "cluster_label": [str(c) for c in clusters_sorted] + (["Шум"] if has_outliers else [])
         },
-        category_orders={"cluster_label": [str(c) for c in clusters_sorted] + (["Шум"] if has_outliers else [])},
         title="UMAP — проекция панелей по кластерам",
         labels={"x": "UMAP-1", "y": "UMAP-2", "cluster_label": "Кластер"},
     )
@@ -110,9 +110,7 @@ def _render_distribution(umap_records: list[dict]) -> None:
     """Отображает распределение панелей по кластерам."""
     df = pd.DataFrame(umap_records)
     df["cluster_id"] = df["cluster_id"].astype(int)
-    df["cluster_label"] = df["cluster_id"].apply(
-        lambda c: "Шум" if c == -1 else str(c)
-    )
+    df["cluster_label"] = df["cluster_id"].apply(lambda c: "Шум" if c == -1 else str(c))
     counts = df.groupby("cluster_label").size().reset_index(name="count")
     # Сортировка: числовые кластеры по возрастанию, "Шум" в конце
     order = sorted(
@@ -126,19 +124,22 @@ def _render_distribution(umap_records: list[dict]) -> None:
 
     clusters_sorted = [x for x in order if x != "Шум"]
     color_map = {
-        c: _CLUSTER_COLORS[i % len(_CLUSTER_COLORS)]
-        for i, c in enumerate(clusters_sorted)
+        c: _CLUSTER_COLORS[i % len(_CLUSTER_COLORS)] for i, c in enumerate(clusters_sorted)
     }
     color_map["Шум"] = _OUTLIER_COLOR
 
     fig = px.bar(
-        counts, x="cluster_label", y="count", color="cluster_label",
+        counts,
+        x="cluster_label",
+        y="count",
+        color="cluster_label",
         color_discrete_map=color_map,
         title="Распределение панелей по кластерам",
         labels={"cluster_label": "Кластер", "count": "Панелей"},
     )
     fig.update_layout(
-        height=300, margin=dict(l=0, r=0, t=40, b=0),
+        height=300,
+        margin=dict(l=0, r=0, t=40, b=0),
         showlegend=False,
         **_DARK_LAYOUT,
     )
@@ -151,24 +152,33 @@ def _render_silhouette(silhouette_scores: dict, best_k: int | None) -> None:
     scores = [silhouette_scores[str(k)] for k in ks]
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=ks, y=scores, mode="lines+markers",
-        line=dict(color="#636EFA", width=2),
-        marker=dict(size=8),
-        name="Silhouette",
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=ks,
+            y=scores,
+            mode="lines+markers",
+            line=dict(color="#636EFA", width=2),
+            marker=dict(size=8),
+            name="Silhouette",
+        )
+    )
     if best_k is not None and best_k in ks:
         best_score = silhouette_scores[str(best_k)]
-        fig.add_trace(go.Scatter(
-            x=[best_k], y=[best_score], mode="markers",
-            marker=dict(size=14, color="#EF553B", symbol="star"),
-            name=f"Лучшее k={best_k}",
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=[best_k],
+                y=[best_score],
+                mode="markers",
+                marker=dict(size=14, color="#EF553B", symbol="star"),
+                name=f"Лучшее k={best_k}",
+            )
+        )
     fig.update_layout(
         title="Silhouette score по количеству кластеров",
         xaxis_title="k (число кластеров)",
         yaxis_title="Silhouette score",
-        height=300, margin=dict(l=0, r=0, t=40, b=0),
+        height=300,
+        margin=dict(l=0, r=0, t=40, b=0),
         **_DARK_LAYOUT,
     )
     st.plotly_chart(fig, use_container_width=True)
@@ -188,16 +198,23 @@ def _render_mean_ts(mean_ts_records: list[dict]) -> None:
         fig = go.Figure()
         fill_color = (
             color.replace("rgb", "rgba").replace(")", ", 0.15)")
-            if color.startswith("rgb") else color
+            if color.startswith("rgb")
+            else color
         )
-        fig.add_trace(go.Scatter(
-            x=cluster_df["date"], y=cluster_df["mean_value"],
-            mode="lines", line=dict(color=color, width=2),
-            fill="tozeroy", fillcolor=fill_color,
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=cluster_df["date"],
+                y=cluster_df["mean_value"],
+                mode="lines",
+                line=dict(color=color, width=2),
+                fill="tozeroy",
+                fillcolor=fill_color,
+            )
+        )
         fig.update_layout(
             title=f"Кластер {cluster_id}",
-            height=200, margin=dict(l=0, r=0, t=35, b=0),
+            height=200,
+            margin=dict(l=0, r=0, t=35, b=0),
             xaxis=dict(showgrid=False, showticklabels=False),
             yaxis=dict(showgrid=True, gridcolor="#333"),
             showlegend=False,
@@ -291,7 +308,9 @@ def render() -> None:
                 job = get_job(job_id)
                 new_result = {**result, **job["result"]}
                 st.session_state.current_project = {
-                    **project, "result": new_result, "project_id": project_id,
+                    **project,
+                    "result": new_result,
+                    "project_id": project_id,
                 }
             except Exception:
                 pass
@@ -313,25 +332,35 @@ def render() -> None:
     col1, col2 = st.columns(2)
     with col1:
         method = st.selectbox(
-            "Метод", list(_METHOD_LABELS.keys()),
+            "Метод",
+            list(_METHOD_LABELS.keys()),
             format_func=lambda x: _METHOD_LABELS[x],
             key="cluster_method",
         )
     with col2:
         if method == "kmeans":
             n_clusters = st.number_input(
-                "Количество кластеров", min_value=2, max_value=20, value=5,
+                "Количество кластеров",
+                min_value=2,
+                max_value=20,
+                value=5,
                 key="cluster_n",
             )
         elif method == "kmeans_auto":
             n_clusters = st.number_input(
-                "Максимальное K", min_value=3, max_value=20, value=10,
+                "Максимальное K",
+                min_value=3,
+                max_value=20,
+                value=10,
                 key="cluster_n",
                 help="Перебор от 2 до этого значения, выбор лучшего по silhouette score",
             )
         else:
             n_clusters = st.number_input(
-                "min_cluster_size", min_value=2, max_value=50, value=5,
+                "min_cluster_size",
+                min_value=2,
+                max_value=50,
+                value=5,
                 key="cluster_n",
                 help="Минимальный размер кластера для HDBSCAN",
             )
@@ -361,8 +390,11 @@ def render() -> None:
         with st.spinner("Запускаю..."):
             try:
                 job = run_clustering(
-                    project_id, n_clusters=int(n_clusters), method=method,
-                    use_mstl=use_mstl, feature_mode=feature_mode,
+                    project_id,
+                    n_clusters=int(n_clusters),
+                    method=method,
+                    use_mstl=use_mstl,
+                    feature_mode=feature_mode,
                 )
             except Exception as e:
                 st.error(f"Ошибка запуска: {e}")
