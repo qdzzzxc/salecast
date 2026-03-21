@@ -145,6 +145,23 @@ class TestBuildTsFeatures:
             panel = result[result["article"] == pid]
             assert len(panel) == 18
 
+    def test_mstl_seasonal_disabled_by_default(self, multi_panel_df):
+        settings = Settings()
+        assert not settings.downstream.use_mstl_seasonal
+        result = build_ts_features(multi_panel_df, settings, disable_tqdm=True)
+        assert "sales_mstl_seasonal" not in result.columns
+
+    def test_mstl_seasonal_enabled(self, multi_panel_df):
+        settings = Settings(
+            downstream=DownstreamConfig(use_mstl_seasonal=True)
+        )
+        result = build_ts_features(multi_panel_df, settings, disable_tqdm=True)
+        assert "sales_mstl_seasonal" in result.columns
+        # Каждая панель должна иметь значения
+        for pid in ["A1", "A2", "A3"]:
+            panel = result[result["article"] == pid]
+            assert not panel["sales_mstl_seasonal"].isna().all()
+
     def test_rename_build_ts_features(self, multi_panel_df):
         """build_ts_features существует и возвращает DataFrame с нужными колонками."""
         settings = Settings()
