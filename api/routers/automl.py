@@ -109,6 +109,17 @@ class ChronosRunParams(BaseModel):
     batch_size: int = 256
 
 
+class TS2VecRunParams(BaseModel):
+    """Параметры TS2Vec для запуска AutoML."""
+
+    output_dims: int = 320
+    hidden_dims: int = 64
+    depth: int = 10
+    n_epochs: int = 50
+    lr: float = 1e-3
+    batch_size: int = 16
+
+
 class AutoMLRunConfig(BaseModel):
     """Конфигурация запуска AutoML."""
 
@@ -116,10 +127,11 @@ class AutoMLRunConfig(BaseModel):
     selection_metric: str = "mape"
     use_hyperopt: bool = False
     n_trials: int = 30
-    hyperopt_timeout: int | None = None  # таймаут Optuna в секундах (None = без ограничения)
-    freq: str | None = None  # None = автоопределение из данных
+    hyperopt_timeout: int | None = None
+    freq: str | None = None
     catboost_params: CatBoostRunParams = CatBoostRunParams()
     chronos_params: ChronosRunParams = ChronosRunParams()
+    ts2vec_params: TS2VecRunParams = TS2VecRunParams()
     autoarima_approximation: bool = True
     feature_params: FeatureParams = FeatureParams()
 
@@ -174,6 +186,7 @@ async def run_automl(
         config.autoarima_approximation,
         config.feature_params.model_dump(),
         config.chronos_params.model_dump(),
+        config.ts2vec_params.model_dump(),
     )
 
     return _to_job_schema(job)

@@ -9,6 +9,7 @@ from src.automl.models.catboost_model import CatBoostForecastModel, CatBoostPerP
 from src.automl.models.chronos_model import ChronosForecastModel
 from src.automl.models.seasonal_naive_model import SeasonalNaiveForecastModel
 from src.automl.models.statsforecast_model import StatsForecastModel
+from src.automl.models.ts2vec_model import TS2VecForecastModel
 from src.configs.settings import Settings
 from src.custom_types import (
     AutoMLResult,
@@ -103,6 +104,8 @@ def _build_model(
         return StatsForecastModel(model_type=model_type)
     if model_type == ModelType.chronos:
         return ChronosForecastModel()
+    if model_type == ModelType.ts2vec:
+        return TS2VecForecastModel()
     raise ValueError(f"Неизвестный тип модели: {model_type}")
 
 

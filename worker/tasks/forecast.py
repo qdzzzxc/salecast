@@ -16,6 +16,7 @@ from src.automl.models import (
 )
 from src.automl.models.catboost_clustered_model import CatBoostClusteredForecastModel
 from src.automl.models.chronos_model import ChronosForecastModel, ChronosParameters
+from src.automl.models.ts2vec_model import TS2VecForecastModel, TS2VecParameters
 from src.automl.ts_utils import get_downstream_lags, infer_ts_config
 from src.configs.settings import ColumnConfig, Settings
 from src.custom_types import ModelType
@@ -96,6 +97,7 @@ def _build_model(
     model_name: str,
     cluster_labels: dict[str, int] | None = None,
     chronos_params: dict | None = None,
+    ts2vec_params: dict | None = None,
 ):
     """Создаёт экземпляр модели по имени."""
     mt = ModelType(model_name)
@@ -111,6 +113,8 @@ def _build_model(
         return StatsForecastModel(model_type=mt)
     if mt == ModelType.chronos:
         return ChronosForecastModel(params=ChronosParameters(**(chronos_params or {})))
+    if mt == ModelType.ts2vec:
+        return TS2VecForecastModel(params=TS2VecParameters(**(ts2vec_params or {})))
     raise ValueError(f"Неизвестная модель: {model_name}")
 
 
@@ -199,7 +203,8 @@ def run_forecast(
             _add_step(session, job, "forecasting", f"Прогноз {model_name} на {horizon} точек")
 
             chronos_p = automl_info.get("chronos_params")
-            model = _build_model(model_name, cluster_labels, chronos_p)
+            ts2vec_p = automl_info.get("ts2vec_params")
+            model = _build_model(model_name, cluster_labels, chronos_p, ts2vec_p)
             forecast_df = model.forecast_future(
                 full_df=full_df,
                 horizon=horizon,

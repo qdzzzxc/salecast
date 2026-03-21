@@ -11,6 +11,7 @@ exclude = [
     "env",
     "tests",
     "examples",
+    "src/automl/ts2vec",
 ]
 [lint]
 extend-select = [
