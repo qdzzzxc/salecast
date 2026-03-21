@@ -1,6 +1,7 @@
 import time
 
 import pandas as pd
+import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 import yaml
@@ -102,7 +103,7 @@ def _render_config(has_clustering: bool = False) -> dict:
     use_cdf = False
     cdf_decay = 0.9
     if any(m in selected for m in ("catboost", "catboost_per_panel", "catboost_clustered")):
-        with st.expander("Настройки CatBoost"):
+        with st.expander("Настройки CatBoost (общие для всех вариантов)"):
             cb_iterations = st.number_input(
                 "iterations", min_value=50, max_value=5000, step=50,
                 value=st.session_state.get("cb_iterations", 1000), key="cb_iterations",
@@ -320,8 +321,7 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
     ]
     st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
 
-    # Таблица по панелям для лучшей модели
-    st.markdown("**Результаты по панелям (лучшая модель)**")
+    # Лучшие / худшие панели
     best_mr = next(mr for mr in model_results if mr["name"] == best_model)
     panel_rows = [
         {
@@ -332,7 +332,35 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
         for p in best_mr.get("panel_metrics", [])
     ]
     panel_df = pd.DataFrame(panel_rows).sort_values(f"Test {metric.upper()}")
+    top3 = [str(p) for p in panel_df.head(3)["Panel ID"].tolist()]
+    bot3 = [str(p) for p in panel_df.tail(3)["Panel ID"].tolist()]
+    mini_panel_ids = list(dict.fromkeys(top3 + bot3))
 
+    mini_cache_key = f"automl_mini_preds_{project_id}"
+    if mini_cache_key not in st.session_state and mini_panel_ids:
+        with st.spinner("Загрузка предсказаний..."):
+            try:
+                st.session_state[mini_cache_key] = get_automl_predictions(
+                    project_id, mini_panel_ids, all_model_names
+                )
+            except Exception:
+                st.session_state[mini_cache_key] = {}
+    mini_predictions = st.session_state.get(mini_cache_key, {})
+
+    col_best, col_worst = st.columns(2)
+    with col_best:
+        st.markdown("**Топ-3 (лучший test)**")
+        _render_mini_charts(project_id, top3, val_periods, test_periods, key_prefix="top",
+                            predictions=mini_predictions, selected_models=selected_models)
+    with col_worst:
+        st.markdown("**Антитоп-3 (худший test)**")
+        _render_mini_charts(project_id, bot3, val_periods, test_periods, key_prefix="bot",
+                            predictions=mini_predictions, selected_models=selected_models)
+
+    st.divider()
+
+    # Результаты по панелям для лучшей модели
+    st.markdown("**Результаты по панелям (лучшая модель)**")
     selection = st.dataframe(
         panel_df,
         use_container_width=True,
@@ -347,34 +375,33 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
         _render_panel_chart(project_id, panel_id, val_periods, test_periods,
                             all_model_names, selected_models)
 
-    st.divider()
-
-    # Лучшие / худшие панели
-    col_best, col_worst = st.columns(2)
-    top3 = [str(p) for p in panel_df.head(3)["Panel ID"].tolist()]
-    bot3 = [str(p) for p in panel_df.tail(3)["Panel ID"].tolist()]
-    mini_panel_ids = list(dict.fromkeys(top3 + bot3))
-
-    # Предсказания для всех обученных моделей — кешируем, переключение моделей без запросов
-    mini_cache_key = f"automl_mini_preds_{project_id}"
-    if mini_cache_key not in st.session_state and mini_panel_ids:
-        with st.spinner("Загрузка предсказаний..."):
-            try:
-                st.session_state[mini_cache_key] = get_automl_predictions(
-                    project_id, mini_panel_ids, all_model_names
+    # Feature importance для CatBoost моделей
+    fi_models = [mr for mr in sorted_mrs if mr.get("feature_importance")]
+    if fi_models:
+        st.divider()
+        st.markdown("**Важность признаков**")
+        for mr in fi_models:
+            label = _MODEL_LABELS.get(mr["name"], mr["name"])
+            with st.expander(f"{label}", expanded=len(fi_models) == 1):
+                fi = mr["feature_importance"]
+                fi_df = pd.DataFrame(fi, columns=["Признак", "Важность"])
+                top_fi = fi_df.head(20)
+                fig = px.bar(
+                    top_fi, x="Важность", y="Признак", orientation="h",
+                    color="Важность",
+                    color_continuous_scale="Blues",
                 )
-            except Exception:
-                st.session_state[mini_cache_key] = {}
-    mini_predictions = st.session_state.get(mini_cache_key, {})
-
-    with col_best:
-        st.markdown("**Топ-3 (лучший test)**")
-        _render_mini_charts(project_id, top3, val_periods, test_periods, key_prefix="top",
-                            predictions=mini_predictions, selected_models=selected_models)
-    with col_worst:
-        st.markdown("**Антитоп-3 (худший test)**")
-        _render_mini_charts(project_id, bot3, val_periods, test_periods, key_prefix="bot",
-                            predictions=mini_predictions, selected_models=selected_models)
+                fig.update_layout(
+                    yaxis=dict(autorange="reversed"),
+                    height=max(300, len(top_fi) * 25),
+                    margin=dict(l=0, r=0, t=10, b=0),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    font_color="#FAFAFA",
+                    coloraxis_showscale=False,
+                    showlegend=False,
+                )
+                st.plotly_chart(fig, use_container_width=True)
 
 
 

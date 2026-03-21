@@ -282,6 +282,7 @@ class ModelResult:
     name: str
     evaluation: "EvaluationResults"
     params: BaseModel
+    feature_importance: list[tuple[str, float]] | None = None
 
 
 @dataclass
