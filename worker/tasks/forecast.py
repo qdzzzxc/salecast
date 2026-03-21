@@ -8,9 +8,14 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from celery_app import celery
-from src.automl.models import CatBoostForecastModel, CatBoostPerPanelForecastModel, SeasonalNaiveForecastModel, StatsForecastModel
+from src.automl.models import (
+    CatBoostForecastModel,
+    CatBoostPerPanelForecastModel,
+    SeasonalNaiveForecastModel,
+    StatsForecastModel,
+)
 from src.automl.models.catboost_clustered_model import CatBoostClusteredForecastModel
-from src.automl.models.chronos_model import ChronosForecastModel
+from src.automl.models.chronos_model import ChronosForecastModel, ChronosParameters
 from src.automl.ts_utils import get_downstream_lags, infer_ts_config
 from src.configs.settings import ColumnConfig, Settings
 from src.custom_types import ModelType
@@ -40,12 +45,16 @@ def _get_engine():
 
 def _get_redis():
     import redis
-    return redis.Redis(host=_redis_host, port=_redis_port, password=_redis_password, decode_responses=True)
+
+    return redis.Redis(
+        host=_redis_host, port=_redis_port, password=_redis_password, decode_responses=True
+    )
 
 
 def _get_s3():
     import boto3
     from botocore.client import Config
+
     return boto3.client(
         "s3",
         endpoint_url=_minio_endpoint,
@@ -69,16 +78,25 @@ def _upload_csv(key: str, df: pd.DataFrame) -> None:
 
 def _add_step(session: Session, job, name: str, message: str) -> None:
     from api.models import Job
+
     steps = list(job.steps)
-    steps.append({"name": name, "message": message, "timestamp": datetime.now(timezone.utc).isoformat()})
+    steps.append(
+        {"name": name, "message": message, "timestamp": datetime.now(timezone.utc).isoformat()}
+    )
     session.execute(
-        Job.__table__.update().where(Job.__table__.c.id == job.id).values(steps=steps, status="running")
+        Job.__table__.update()
+        .where(Job.__table__.c.id == job.id)
+        .values(steps=steps, status="running")
     )
     session.commit()
     job.steps = steps
 
 
-def _build_model(model_name: str, cluster_labels: dict[str, int] | None = None):
+def _build_model(
+    model_name: str,
+    cluster_labels: dict[str, int] | None = None,
+    chronos_params: dict | None = None,
+):
     """Создаёт экземпляр модели по имени."""
     mt = ModelType(model_name)
     if mt == ModelType.seasonal_naive:
@@ -92,7 +110,7 @@ def _build_model(model_name: str, cluster_labels: dict[str, int] | None = None):
     if mt in (ModelType.autoarima, ModelType.autoets, ModelType.autotheta, ModelType.mstl):
         return StatsForecastModel(model_type=mt)
     if mt == ModelType.chronos:
-        return ChronosForecastModel()
+        return ChronosForecastModel(params=ChronosParameters(**(chronos_params or {})))
     raise ValueError(f"Неизвестная модель: {model_name}")
 
 
@@ -150,7 +168,9 @@ def run_forecast(
 
             ts_config = infer_ts_config(full_df, date_col)
             lags = get_downstream_lags(ts_config.freq)
-            logger.info("Forecast: freq=%s, season_length=%d", ts_config.freq, ts_config.season_length)
+            logger.info(
+                "Forecast: freq=%s, season_length=%d", ts_config.freq, ts_config.season_length
+            )
             base_settings = Settings()
             downstream_update: dict = {"lags": lags}
             automl_info = automl_job.result.get("automl", {})
@@ -171,20 +191,27 @@ def run_forecast(
                 clustering_info = automl_job.result.get("clustering")
                 if clustering_info:
                     labels_df = _load_csv(clustering_info["labels_key"])
-                    cluster_labels = dict(zip(labels_df.iloc[:, 0].astype(str), labels_df["cluster_id"].astype(int)))
+                    cluster_labels = dict(
+                        zip(labels_df.iloc[:, 0].astype(str), labels_df["cluster_id"].astype(int))
+                    )
 
             _publish({"type": "step_start", "step": "training"})
             _add_step(session, job, "forecasting", f"Прогноз {model_name} на {horizon} точек")
 
-            model = _build_model(model_name, cluster_labels)
+            chronos_p = automl_info.get("chronos_params")
+            model = _build_model(model_name, cluster_labels, chronos_p)
             forecast_df = model.forecast_future(
                 full_df=full_df,
                 horizon=horizon,
                 settings=settings,
                 on_training_done=lambda: _publish({"type": "step_start", "step": "forecasting"}),
-                on_forecast_step=lambda i, n: _publish({
-                    "type": "forecast_step", "step_i": str(i), "total": str(n),
-                }),
+                on_forecast_step=lambda i, n: _publish(
+                    {
+                        "type": "forecast_step",
+                        "step_i": str(i),
+                        "total": str(n),
+                    }
+                ),
             )
 
             forecast_key = f"projects/{project_id}/forecast.csv"

@@ -27,7 +27,12 @@ async def _create_project(
         async with session.post(
             f"{_API_URL}/projects",
             data=form,
-            params={"name": name, "panel_col": panel_col, "date_col": date_col, "value_col": value_col},
+            params={
+                "name": name,
+                "panel_col": panel_col,
+                "date_col": date_col,
+                "value_col": value_col,
+            },
         ) as resp:
             resp.raise_for_status()
             return await resp.json()
@@ -123,6 +128,7 @@ async def _run_automl(
     catboost_params: dict | None = None,
     autoarima_approximation: bool = True,
     feature_params: dict | None = None,
+    chronos_params: dict | None = None,
 ) -> dict[str, Any]:
     """Запускает AutoML через API."""
     payload: dict = {
@@ -140,6 +146,8 @@ async def _run_automl(
         payload["catboost_params"] = catboost_params
     if feature_params is not None:
         payload["feature_params"] = feature_params
+    if chronos_params is not None:
+        payload["chronos_params"] = chronos_params
     async with aiohttp.ClientSession() as session:
         async with session.post(
             f"{_API_URL}/projects/{project_id}/run_automl",
@@ -160,17 +168,31 @@ def run_automl(
     catboost_params: dict | None = None,
     autoarima_approximation: bool = True,
     feature_params: dict | None = None,
+    chronos_params: dict | None = None,
 ) -> dict[str, Any]:
     """Запускает AutoML (синхронная обёртка)."""
-    return _run(_run_automl(
-        project_id, models, selection_metric, use_hyperopt,
-        freq, n_trials, hyperopt_timeout, catboost_params, autoarima_approximation, feature_params,
-    ))
+    return _run(
+        _run_automl(
+            project_id,
+            models,
+            selection_metric,
+            use_hyperopt,
+            freq,
+            n_trials,
+            hyperopt_timeout,
+            catboost_params,
+            autoarima_approximation,
+            feature_params,
+            chronos_params,
+        )
+    )
 
 
 async def _get_automl_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
     async with aiohttp.ClientSession() as session:
-        async with session.get(f"{_API_URL}/projects/{project_id}/automl_progress/{job_id}") as resp:
+        async with session.get(
+            f"{_API_URL}/projects/{project_id}/automl_progress/{job_id}"
+        ) as resp:
             resp.raise_for_status()
             return await resp.json()
 
@@ -181,7 +203,9 @@ def get_automl_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
 
 async def _get_forecast_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
     async with aiohttp.ClientSession() as session:
-        async with session.get(f"{_API_URL}/projects/{project_id}/forecast_progress/{job_id}") as resp:
+        async with session.get(
+            f"{_API_URL}/projects/{project_id}/forecast_progress/{job_id}"
+        ) as resp:
             resp.raise_for_status()
             return await resp.json()
 

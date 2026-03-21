@@ -3,10 +3,9 @@ from collections.abc import Callable
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.automl.base import BaseForecastModel, CancelFn, ModelCancelledError, ProgressFn
-from src.automl.ts_utils import next_dates
 from src.configs.settings import Settings
 from src.custom_types import ModelResult, Splits
 from src.evaluation import evaluate_multiple_splits, log_evaluation_results
@@ -14,16 +13,28 @@ from src.evaluation import evaluate_multiple_splits, log_evaluation_results
 logger = logging.getLogger(__name__)
 
 
-class _ChronosParams(BaseModel):
-    """Параметры Chronos-2 для сериализации в ModelResult."""
+class ChronosParameters(BaseModel):
+    """Параметры Chronos-2."""
 
-    pass
+    context_length: int | None = Field(
+        default=None,
+        description="Длина контекста (None = весь ряд, макс 8192)",
+    )
+    cross_learning: bool = Field(
+        default=False,
+        description="Учитывать связи между рядами",
+    )
+    batch_size: int = Field(
+        default=256,
+        description="Размер батча (уменьшить при нехватке GPU памяти)",
+    )
 
 
 def _get_device() -> str:
     """Возвращает 'cuda' если GPU доступен, иначе 'cpu'."""
     try:
         import torch
+
         if torch.cuda.is_available():
             return "cuda"
     except ImportError:
@@ -38,7 +49,7 @@ def _predict_panel(
     id_col: str,
     date_col: str,
     target: str,
-    freq: str,
+    params: ChronosParameters,
 ) -> pd.DataFrame:
     """Прогнозирует через Chronos-2 predict_df и возвращает медианный прогноз."""
     context_df = df[[id_col, date_col, target]].copy()
@@ -53,6 +64,9 @@ def _predict_panel(
         id_column="id",
         timestamp_column="timestamp",
         target="target",
+        context_length=params.context_length,
+        cross_learning=params.cross_learning,
+        batch_size=params.batch_size,
     )
 
     return pred_df
@@ -63,8 +77,8 @@ class ChronosForecastModel(BaseForecastModel):
 
     name: str = "chronos"
 
-    def __init__(self) -> None:
-        pass
+    def __init__(self, params: ChronosParameters | None = None) -> None:
+        self.params = params or ChronosParameters()
 
     def fit_evaluate(
         self,
@@ -78,8 +92,7 @@ class ChronosForecastModel(BaseForecastModel):
             from chronos import Chronos2Pipeline
         except ImportError as e:
             raise ImportError(
-                "chronos-forecasting не установлен. Установите: "
-                "uv sync --extra neural"
+                "chronos-forecasting не установлен. Установите: uv sync --extra neural"
             ) from e
 
         if cancel_fn and cancel_fn():
@@ -89,19 +102,19 @@ class ChronosForecastModel(BaseForecastModel):
         target = cols.main_target
         id_col = cols.id
         date_col = cols.date
-        freq = settings.ts.freq
 
         device = _get_device()
         if progress_fn:
             progress_fn(f"загрузка модели ({device})...", 5.0)
 
         pipeline = Chronos2Pipeline.from_pretrained(
-            "amazon/chronos-2", device_map=device,
+            "amazon/chronos-2",
+            device_map=device,
         )
 
         splits_data: dict[str, tuple[pd.DataFrame, np.ndarray]] = {}
 
-        # Val прогноз: обучение на train
+        # Val прогноз: контекст = train
         if splits.val is not None:
             if cancel_fn and cancel_fn():
                 raise ModelCancelledError(self.name)
@@ -110,31 +123,54 @@ class ChronosForecastModel(BaseForecastModel):
 
             val_size = splits.val[date_col].nunique()
             pred_df = _predict_panel(
-                pipeline, splits.train, val_size, id_col, date_col, target, freq,
+                pipeline,
+                splits.train,
+                val_size,
+                id_col,
+                date_col,
+                target,
+                self.params,
             )
             val_preds = _align_chronos_predictions(
-                pred_df, splits.val, id_col, date_col,
+                pred_df,
+                splits.val,
+                id_col,
+                date_col,
             )
             splits_data["val"] = (
                 splits.val[[id_col, target]].reset_index(drop=True),
                 val_preds,
             )
 
-        # Test прогноз: обучение на train+val
+        # Test прогноз: контекст = train+val
         if cancel_fn and cancel_fn():
             raise ModelCancelledError(self.name)
         if progress_fn:
             progress_fn("прогноз test...", 60.0)
 
         test_size = splits.test[date_col].nunique()
-        fit_df = splits.train if splits.val is None else pd.concat(
-            [splits.train, splits.val], ignore_index=True,
+        fit_df = (
+            splits.train
+            if splits.val is None
+            else pd.concat(
+                [splits.train, splits.val],
+                ignore_index=True,
+            )
         )
         pred_df = _predict_panel(
-            pipeline, fit_df, test_size, id_col, date_col, target, freq,
+            pipeline,
+            fit_df,
+            test_size,
+            id_col,
+            date_col,
+            target,
+            self.params,
         )
         test_preds = _align_chronos_predictions(
-            pred_df, splits.test, id_col, date_col,
+            pred_df,
+            splits.test,
+            id_col,
+            date_col,
         )
         splits_data["test"] = (
             splits.test[[id_col, target]].reset_index(drop=True),
@@ -154,7 +190,7 @@ class ChronosForecastModel(BaseForecastModel):
         return ModelResult(
             name=self.name,
             evaluation=results,
-            params=_ChronosParams(),
+            params=self.params,
         )
 
     def forecast_future(
@@ -175,25 +211,33 @@ class ChronosForecastModel(BaseForecastModel):
         device = _get_device()
 
         pipeline = Chronos2Pipeline.from_pretrained(
-            "amazon/chronos-2", device_map=device,
+            "amazon/chronos-2",
+            device_map=device,
         )
 
         if on_training_done:
             on_training_done()
 
         pred_df = _predict_panel(
-            pipeline, full_df, horizon,
-            cols.id, cols.date, cols.main_target, settings.ts.freq,
+            pipeline,
+            full_df,
+            horizon,
+            cols.id,
+            cols.date,
+            cols.main_target,
+            self.params,
         )
 
         # Извлекаем медианный прогноз
         forecast_rows = []
         for _, row in pred_df.iterrows():
-            forecast_rows.append({
-                "panel_id": str(row["id"]),
-                "date": pd.Timestamp(row["timestamp"]).strftime("%Y-%m-%d"),
-                "forecast": max(0.0, float(row["0.5"])),
-            })
+            forecast_rows.append(
+                {
+                    "panel_id": str(row["id"]),
+                    "date": pd.Timestamp(row["timestamp"]).strftime("%Y-%m-%d"),
+                    "forecast": max(0.0, float(row["0.5"])),
+                }
+            )
 
         return pd.DataFrame(forecast_rows)
 
