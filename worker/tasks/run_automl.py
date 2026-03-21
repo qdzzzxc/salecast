@@ -297,6 +297,10 @@ def run_automl(
                     logger.error("Модель %s превысила таймаут (300s), пропускаем", model_type)
                     redis_client.xadd(stream_key, {"type": "model_timeout", "model": model_type})
                     continue
+                except Exception:
+                    logger.exception("Модель %s упала с ошибкой, пропускаем", model_type)
+                    redis_client.xadd(stream_key, {"type": "model_skipped", "model": model_type})
+                    continue
                 all_results.append(result)
 
                 # Сохраняем предсказания (val + test) в MinIO
