@@ -225,3 +225,4 @@ test_notebooks/
 *.db
 lightning_logs
 tests/scripts/runs/
+example.sh
