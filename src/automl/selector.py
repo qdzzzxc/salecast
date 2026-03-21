@@ -98,7 +98,7 @@ def _build_model(
         if not cluster_labels:
             raise ValueError("catboost_clustered требует cluster_labels")
         return CatBoostClusteredForecastModel(cluster_labels=cluster_labels, params=catboost_params)
-    if model_type in ("autoarima", "autoets", "autotheta", "mstl"):
+    if model_type in (ModelType.autoarima, ModelType.autoets, ModelType.autotheta, ModelType.mstl):
         return StatsForecastModel(model_type=model_type)
     raise ValueError(f"Неизвестный тип модели: {model_type}")
 
