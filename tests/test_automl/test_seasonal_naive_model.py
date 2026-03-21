@@ -2,7 +2,6 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from src.automl.models.seasonal_naive_model import SeasonalNaiveForecastModel
 from src.configs.settings import Settings
@@ -60,27 +59,21 @@ class TestSeasonalNaiveModel:
 class TestSeasonalNaiveForecastFuture:
     HORIZON = 3
 
-    def test_returns_dataframe(
-        self, full_df: pd.DataFrame, sample_settings: Settings
-    ) -> None:
+    def test_returns_dataframe(self, full_df: pd.DataFrame, sample_settings: Settings) -> None:
         """forecast_future возвращает DataFrame с нужными колонками."""
         model = SeasonalNaiveForecastModel()
         result = model.forecast_future(full_df, self.HORIZON, sample_settings)
         assert isinstance(result, pd.DataFrame)
         assert set(result.columns) == {"panel_id", "date", "forecast"}
 
-    def test_correct_shape(
-        self, full_df: pd.DataFrame, sample_settings: Settings
-    ) -> None:
+    def test_correct_shape(self, full_df: pd.DataFrame, sample_settings: Settings) -> None:
         """Количество строк = n_panels × horizon."""
         model = SeasonalNaiveForecastModel()
         result = model.forecast_future(full_df, self.HORIZON, sample_settings)
         n_panels = full_df[sample_settings.columns.id].nunique()
         assert len(result) == n_panels * self.HORIZON
 
-    def test_no_negative_values(
-        self, full_df: pd.DataFrame, sample_settings: Settings
-    ) -> None:
+    def test_no_negative_values(self, full_df: pd.DataFrame, sample_settings: Settings) -> None:
         """Прогноз не содержит отрицательных значений."""
         model = SeasonalNaiveForecastModel()
         result = model.forecast_future(full_df, self.HORIZON, sample_settings)

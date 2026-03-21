@@ -213,19 +213,19 @@ class EvaluationResults:
 
     def get_overall_metrics_df(self) -> pd.DataFrame:
         """Возвращает общие метрики в виде DataFrame."""
-        data = []
+        data: list[dict] = []
         for split_eval in self.splits:
-            row = {"split": split_eval.split_name}
+            row: dict = {"split": split_eval.split_name}
             row.update(split_eval.overall_metrics.to_dict())
             data.append(row)
         return pd.DataFrame(data)
 
     def get_panel_metrics_df(self) -> pd.DataFrame:
         """Возвращает метрики по панелям в виде DataFrame."""
-        data = []
+        data: list[dict] = []
         for split_eval in self.splits:
             for panel_metric in split_eval.panel_metrics:
-                row = {
+                row: dict = {
                     "split": panel_metric.split,
                     "panel_id": panel_metric.panel_id,
                 }

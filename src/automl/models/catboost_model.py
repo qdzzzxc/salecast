@@ -97,13 +97,14 @@ class CatBoostForecastModel(BaseForecastModel):
         if should_scale:
             if progress_fn:
                 progress_fn("масштабирование...", 5.0)
-            ready_splits = scale_panel_splits(
+            scaled = scale_panel_splits(
                 splits=(feature_splits.train, feature_splits.val, feature_splits.test),
                 panel_column=panel_col,
                 target_columns=[target],
                 apply_log=apply_log,
             )
-            scalers = ready_splits.scalers
+            ready_splits: Splits[pd.DataFrame] = scaled
+            scalers = scaled.scalers
         else:
             ready_splits = feature_splits
             scalers = None
@@ -210,11 +211,13 @@ class CatBoostForecastModel(BaseForecastModel):
             next_df[value_col] = preds
 
             for i, row in next_df.iterrows():
-                all_preds.append({
-                    "panel_id": str(row[panel_col]),
-                    "date": pd.Timestamp(row[date_col]).strftime("%Y-%m-%d"),
-                    "forecast": float(preds[i]),
-                })
+                all_preds.append(
+                    {
+                        "panel_id": str(row[panel_col]),
+                        "date": pd.Timestamp(row[date_col]).strftime("%Y-%m-%d"),
+                        "forecast": float(preds[i]),
+                    }
+                )
 
             running_df = pd.concat([running_df, next_df.drop(columns=[_FUTURE])], ignore_index=True)
 
@@ -261,7 +264,9 @@ class CatBoostPerPanelForecastModel(BaseForecastModel):
         n_panels = len(panels)
         # splits_data: накапливаем (df_с_таргетом, y_pred) по каждому сплиту
         splits_acc: dict[str, list[tuple[pd.DataFrame, np.ndarray]]] = {
-            "train": [], "val": [], "test": []
+            "train": [],
+            "val": [],
+            "test": [],
         }
         importance_acc: dict[str, list[float]] = {}
 
@@ -274,33 +279,34 @@ class CatBoostPerPanelForecastModel(BaseForecastModel):
 
             panel_mask = full_features[panel_col] == panel_id
 
-            train_feat = full_features[
-                panel_mask & (full_features[_SPLIT_COL] == "train")
-            ].drop(columns=[_SPLIT_COL])
+            train_feat = full_features[panel_mask & (full_features[_SPLIT_COL] == "train")].drop(
+                columns=[_SPLIT_COL]
+            )
 
             val_feat = None
             if splits.val is not None:
-                v = full_features[
-                    panel_mask & (full_features[_SPLIT_COL] == "val")
-                ].drop(columns=[_SPLIT_COL])
+                v = full_features[panel_mask & (full_features[_SPLIT_COL] == "val")].drop(
+                    columns=[_SPLIT_COL]
+                )
                 val_feat = v if len(v) > 0 else None
 
-            test_feat = full_features[
-                panel_mask & (full_features[_SPLIT_COL] == "test")
-            ].drop(columns=[_SPLIT_COL])
+            test_feat = full_features[panel_mask & (full_features[_SPLIT_COL] == "test")].drop(
+                columns=[_SPLIT_COL]
+            )
 
             panel_splits: Splits[pd.DataFrame] = Splits(
                 train=train_feat, val=val_feat, test=test_feat
             )
 
             if should_scale:
-                ready = scale_panel_splits(
+                scaled = scale_panel_splits(
                     splits=(panel_splits.train, panel_splits.val, panel_splits.test),
                     panel_column=panel_col,
                     target_columns=[target],
                     apply_log=apply_log,
                 )
-                scalers = ready.scalers
+                ready: Splits[pd.DataFrame] = scaled
+                scalers = scaled.scalers
             else:
                 ready = panel_splits
                 scalers = None
@@ -319,6 +325,7 @@ class CatBoostPerPanelForecastModel(BaseForecastModel):
                 if split_df is None or len(split_df) == 0:
                     continue
                 from src.catboost_utilities.evaluate import _prepare_predictions
+
                 result_df, y_pred = _prepare_predictions(model, split_df, settings, scalers)
                 splits_acc[split_name].append((result_df, y_pred))
 
@@ -348,7 +355,9 @@ class CatBoostPerPanelForecastModel(BaseForecastModel):
             progress_fn("готово", 100.0)
 
         return ModelResult(
-            name=self.name, evaluation=evaluation, params=self.params,
+            name=self.name,
+            evaluation=evaluation,
+            params=self.params,
             feature_importance=feature_importance,
         )
 
@@ -411,11 +420,13 @@ class CatBoostPerPanelForecastModel(BaseForecastModel):
                 future_feat = feat[feat[_FUTURE].fillna(False)][feature_cols].reset_index(drop=True)
                 pred = float(np.maximum(model.predict(future_feat)[0], 0))
 
-                all_preds.append({
-                    "panel_id": str(panel_id),
-                    "date": pd.Timestamp(nd).strftime("%Y-%m-%d"),
-                    "forecast": pred,
-                })
+                all_preds.append(
+                    {
+                        "panel_id": str(panel_id),
+                        "date": pd.Timestamp(nd).strftime("%Y-%m-%d"),
+                        "forecast": pred,
+                    }
+                )
 
                 next_row = next_row.drop(columns=[_FUTURE])
                 next_row[value_col] = pred

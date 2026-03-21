@@ -99,8 +99,8 @@ def _add_trend_features(
             return 0.0
         return float(((x_m - x_mean) * (y_m - y_m.mean())).sum() / denom)
 
-    result[f"{target}_trend_{window}"] = (
-        series.rolling(window, min_periods=2).apply(_slope, raw=True)
+    result[f"{target}_trend_{window}"] = series.rolling(window, min_periods=2).apply(
+        _slope, raw=True
     )
     return result
 
@@ -129,7 +129,7 @@ def _add_cdf_features(
         idx = np.where(valid)[0]
         # weights: decay^(age), age=0 для самой последней точки
         ages = i - 1 - idx
-        weights = decay ** ages
+        weights = decay**ages
         w_total = weights.sum()
         if w_total == 0:
             continue
@@ -178,6 +178,7 @@ def build_ts_features(
     mstl_seasonal: dict[str, np.ndarray] | None = None
     if settings.downstream.use_mstl_seasonal:
         from src.mstl_features import decompose_mstl
+
         mstl_seasonal = {}
         for pid, grp in df.groupby(panel_col):
             vals = grp[target].values
@@ -190,7 +191,9 @@ def build_ts_features(
     features = []
 
     panels = df.groupby(panel_col)
-    for pid, group in tqdm(panels, total=df[panel_col].nunique(), desc="Processing panels", disable=disable_tqdm):
+    for pid, group in tqdm(
+        panels, total=df[panel_col].nunique(), desc="Processing panels", disable=disable_tqdm
+    ):
         group = group.copy()
 
         group = _add_lag_features(group, target, lags)

@@ -121,7 +121,9 @@ class StatsForecastModel(BaseForecastModel):
             if progress_fn:
                 progress_fn("прогноз val...", 40.0)
             val_forecast = sf_val.predict(h=val_size)
-            val_preds = _align_predictions(val_forecast, _MODEL_COL_MAP[self.model_type], splits.val, id_col, date_col)
+            val_preds = _align_predictions(
+                val_forecast, _MODEL_COL_MAP[self.model_type], splits.val, id_col, date_col
+            )
             splits_data["val"] = (splits.val[[id_col, target]].reset_index(drop=True), val_preds)
 
         if cancel_fn and cancel_fn():
@@ -130,7 +132,11 @@ class StatsForecastModel(BaseForecastModel):
         if progress_fn:
             progress_fn("обучение на train+val...", 60.0)
         test_size = splits.test[date_col].nunique()
-        fit_df = splits.train if splits.val is None else pd.concat([splits.train, splits.val], ignore_index=True)
+        fit_df = (
+            splits.train
+            if splits.val is None
+            else pd.concat([splits.train, splits.val], ignore_index=True)
+        )
         sf_test = StatsForecast(
             models=[_make_sf_model(self.model_type, season_length, self.approximation, freq)],
             freq=freq,
@@ -145,7 +151,9 @@ class StatsForecastModel(BaseForecastModel):
         if progress_fn:
             progress_fn("прогноз test...", 85.0)
         test_forecast = sf_test.predict(h=test_size)
-        test_preds = _align_predictions(test_forecast, _MODEL_COL_MAP[self.model_type], splits.test, id_col, date_col)
+        test_preds = _align_predictions(
+            test_forecast, _MODEL_COL_MAP[self.model_type], splits.test, id_col, date_col
+        )
         splits_data["test"] = (splits.test[[id_col, target]].reset_index(drop=True), test_preds)
 
         if progress_fn:
@@ -181,7 +189,11 @@ class StatsForecastModel(BaseForecastModel):
         sf_df = _to_sf_format(full_df, cols.id, cols.date, cols.main_target)
 
         sf = StatsForecast(
-            models=[_make_sf_model(self.model_type, settings.ts.season_length, self.approximation, settings.ts.freq)],
+            models=[
+                _make_sf_model(
+                    self.model_type, settings.ts.season_length, self.approximation, settings.ts.freq
+                )
+            ],
             freq=settings.ts.freq,
             verbose=False,
         )
@@ -192,11 +204,13 @@ class StatsForecastModel(BaseForecastModel):
 
         forecast = sf.predict(h=horizon).reset_index()
         pred_col = _MODEL_COL_MAP[self.model_type]
-        return pd.DataFrame({
-            "panel_id": forecast["unique_id"].astype(str),
-            "date": pd.to_datetime(forecast["ds"]).dt.strftime("%Y-%m-%d"),
-            "forecast": forecast[pred_col].clip(lower=0).astype(float),
-        })
+        return pd.DataFrame(
+            {
+                "panel_id": forecast["unique_id"].astype(str),
+                "date": pd.to_datetime(forecast["ds"]).dt.strftime("%Y-%m-%d"),
+                "forecast": forecast[pred_col].clip(lower=0).astype(float),
+            }
+        )
 
 
 def _to_sf_format(

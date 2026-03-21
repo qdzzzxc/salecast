@@ -4,7 +4,13 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from app.api_client import create_project, get_job, get_panels_data, get_project_preview, run_project
+from app.api_client import (
+    create_project,
+    get_job,
+    get_panels_data,
+    get_project_preview,
+    run_project,
+)
 from app.state import get_current_project, set_page, set_project
 
 _STEP_LABELS = {
@@ -90,9 +96,21 @@ def _render_split_config(median_len: int) -> tuple[int, int]:
         )
     else:
         with col1:
-            val_periods = st.number_input("Val (периодов)", min_value=1, max_value=median_len // 3, value=min(6, median_len // 6), key="val_n")
+            val_periods = st.number_input(
+                "Val (периодов)",
+                min_value=1,
+                max_value=median_len // 3,
+                value=min(6, median_len // 6),
+                key="val_n",
+            )
         with col2:
-            test_periods = st.number_input("Test (периодов)", min_value=1, max_value=median_len // 3, value=min(6, median_len // 6), key="test_n")
+            test_periods = st.number_input(
+                "Test (периодов)",
+                min_value=1,
+                max_value=median_len // 3,
+                value=min(6, median_len // 6),
+                key="test_n",
+            )
         val_pct = round(val_periods / median_len * 100)
         test_pct = round(test_periods / median_len * 100)
         st.caption(f"Train ≈ {100 - val_pct - test_pct}%  ·  Val {val_pct}%  ·  Test {test_pct}%")
@@ -100,7 +118,9 @@ def _render_split_config(median_len: int) -> tuple[int, int]:
     return int(val_periods), int(test_periods)
 
 
-def _render_panel_chart(project_id: str, panel_id: str, val_periods: int, test_periods: int) -> None:
+def _render_panel_chart(
+    project_id: str, panel_id: str, val_periods: int, test_periods: int
+) -> None:
     """Рисует временной ряд с цветными зонами train / val / test."""
     try:
         data = get_panels_data(project_id, [panel_id])
@@ -120,20 +140,37 @@ def _render_panel_chart(project_id: str, panel_id: str, val_periods: int, test_p
     val_end = n - test_periods
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=dates, y=values, mode="lines", line=dict(color="#7C6AF7", width=1.5), name=""))
+    fig.add_trace(
+        go.Scatter(x=dates, y=values, mode="lines", line=dict(color="#7C6AF7", width=1.5), name="")
+    )
 
     if 0 < train_end:
-        fig.add_vrect(x0=dates[0], x1=dates[train_end] if train_end < n else dates[-1],
-                      fillcolor=_TRAIN_COLOR, line_width=0, annotation_text="train",
-                      annotation_position="top left")
+        fig.add_vrect(
+            x0=dates[0],
+            x1=dates[train_end] if train_end < n else dates[-1],
+            fillcolor=_TRAIN_COLOR,
+            line_width=0,
+            annotation_text="train",
+            annotation_position="top left",
+        )
     if 0 < train_end < val_end:
-        fig.add_vrect(x0=dates[train_end], x1=dates[val_end] if val_end < n else dates[-1],
-                      fillcolor=_VAL_COLOR, line_width=0, annotation_text="val",
-                      annotation_position="top left")
+        fig.add_vrect(
+            x0=dates[train_end],
+            x1=dates[val_end] if val_end < n else dates[-1],
+            fillcolor=_VAL_COLOR,
+            line_width=0,
+            annotation_text="val",
+            annotation_position="top left",
+        )
     if val_end < n:
-        fig.add_vrect(x0=dates[val_end], x1=dates[-1],
-                      fillcolor=_TEST_COLOR, line_width=0, annotation_text="test",
-                      annotation_position="top left")
+        fig.add_vrect(
+            x0=dates[val_end],
+            x1=dates[-1],
+            fillcolor=_TEST_COLOR,
+            line_width=0,
+            annotation_text="test",
+            annotation_position="top left",
+        )
 
     if train_end <= 0:
         st.warning(f"Ряд слишком короткий ({n} п.) для val={val_periods} + test={test_periods}")
@@ -188,12 +225,14 @@ def _render_ready_to_run(project: dict) -> None:
     st.divider()
     st.markdown("**Панели**")
 
-    display_df = pd.DataFrame(panels).rename(columns={
-        "panel_id": "Panel ID",
-        "rows": "Строк",
-        "date_min": "С",
-        "date_max": "По",
-    })
+    display_df = pd.DataFrame(panels).rename(
+        columns={
+            "panel_id": "Panel ID",
+            "rows": "Строк",
+            "date_min": "С",
+            "date_max": "По",
+        }
+    )
 
     selection = st.dataframe(
         display_df,

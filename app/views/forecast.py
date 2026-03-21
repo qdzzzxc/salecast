@@ -41,7 +41,9 @@ def _render_config(automl_result: dict) -> tuple[str, int, list[str] | None]:
             key="forecast_model",
         )
     with col2:
-        horizon = st.number_input("Горизонт (точек)", min_value=1, value=6, step=1, key="forecast_horizon")
+        horizon = st.number_input(
+            "Горизонт (точек)", min_value=1, value=6, step=1, key="forecast_horizon"
+        )
 
     return model_name, int(horizon), None
 
@@ -75,10 +77,14 @@ def _render_progress(project_id: str, job_id: str) -> bool:
     is_completed = any(e.get("type") == "completed" for e in events)
 
     n_done = sum(
-        1 for i, (step_key, _) in enumerate(_FORECAST_STEPS)
-        if step_key in started_steps and (
+        1
+        for i, (step_key, _) in enumerate(_FORECAST_STEPS)
+        if step_key in started_steps
+        and (
             is_completed
-            or any(_FORECAST_STEPS[j][0] in started_steps for j in range(i + 1, len(_FORECAST_STEPS)))
+            or any(
+                _FORECAST_STEPS[j][0] in started_steps for j in range(i + 1, len(_FORECAST_STEPS))
+            )
         )
     )
     n_total = len(_FORECAST_STEPS)
@@ -92,9 +98,12 @@ def _render_progress(project_id: str, job_id: str) -> bool:
 
     for step_key, step_label in _FORECAST_STEPS:
         if is_completed or (
-            step_key in started_steps and any(
+            step_key in started_steps
+            and any(
                 _FORECAST_STEPS[j][0] in started_steps
-                for j in range(_FORECAST_STEPS.index((step_key, step_label)) + 1, len(_FORECAST_STEPS))
+                for j in range(
+                    _FORECAST_STEPS.index((step_key, step_label)) + 1, len(_FORECAST_STEPS)
+                )
             )
         ):
             st.markdown(f"✅ {step_label}")
@@ -102,7 +111,11 @@ def _render_progress(project_id: str, job_id: str) -> bool:
             if step_key == "forecasting" and last_fc:
                 step_i = last_fc.get("step_i", "?")
                 total = last_fc.get("total", "?")
-                fc_pct = int(int(step_i) / int(total) * 100) if str(step_i).isdigit() and str(total).isdigit() else 0
+                fc_pct = (
+                    int(int(step_i) / int(total) * 100)
+                    if str(step_i).isdigit() and str(total).isdigit()
+                    else 0
+                )
                 st.progress(fc_pct, text=f"⏳ {step_label} (шаг {step_i}/{total})")
             else:
                 st.markdown(f"⏳ {step_label}")
@@ -172,6 +185,7 @@ def _render_results(project_id: str, forecast_result: dict, split_result: dict) 
     st.markdown("**Панели** — выберите строку для просмотра графика")
 
     import pandas as pd
+
     panel_df = pd.DataFrame({"Panel ID": all_panel_ids})
     selection = st.dataframe(
         panel_df,
@@ -207,22 +221,29 @@ def _render_panel_chart(project_id: str, panel_id: str, forecast_points: list[di
     fig = go.Figure()
 
     # Исторические данные
-    fig.add_trace(go.Scatter(
-        x=hist_dates, y=hist_values,
-        mode="lines", name="История",
-        line=dict(color=_HISTORY_COLOR, width=1.5),
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=hist_dates,
+            y=hist_values,
+            mode="lines",
+            name="История",
+            line=dict(color=_HISTORY_COLOR, width=1.5),
+        )
+    )
 
     # Прогноз
     if fc_dates:
         # Связать линию истории с прогнозом
-        fig.add_trace(go.Scatter(
-            x=[hist_dates[-1]] + fc_dates,
-            y=[hist_values[-1]] + fc_values,
-            mode="lines+markers", name="Прогноз",
-            line=dict(color=_FORECAST_COLOR, width=2, dash="dot"),
-            marker=dict(size=6),
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=[hist_dates[-1]] + fc_dates,
+                y=[hist_values[-1]] + fc_values,
+                mode="lines+markers",
+                name="Прогноз",
+                line=dict(color=_FORECAST_COLOR, width=2, dash="dot"),
+                marker=dict(size=6),
+            )
+        )
 
     fig.update_layout(
         title=f"Панель {panel_id}",

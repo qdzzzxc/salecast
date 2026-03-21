@@ -1,14 +1,15 @@
+from unittest.mock import patch
+
 import pandas as pd
 import pytest
-from unittest.mock import patch
 
 from src.automl.config import AutoMLConfig
 from src.automl.selector import ModelSelector, _build_model, _get_metric_value
 from src.configs.settings import Settings
-from src.custom_types import AutoMLResult, ModelResult, Splits
+from src.custom_types import AutoMLResult, Splits
 
 
-@pytest.fixture()
+@pytest.fixture
 def fast_config() -> AutoMLConfig:
     """AutoMLConfig с быстрыми параметрами для тестов."""
     return AutoMLConfig(models=["seasonal_naive"], selection_metric="mape")
@@ -97,7 +98,9 @@ class TestModelSelector:
         """При use_hyperopt=True tune_catboost вызывается перед обучением."""
         from src.custom_types import CatBoostParameters
 
-        config = AutoMLConfig(models=["catboost"], selection_metric="mape", use_hyperopt=True, n_trials=1)
+        config = AutoMLConfig(
+            models=["catboost"], selection_metric="mape", use_hyperopt=True, n_trials=1
+        )
         selector = ModelSelector(config)
 
         fast_params = CatBoostParameters(iterations=10, depth=2, verbose=False)

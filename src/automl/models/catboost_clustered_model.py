@@ -9,7 +9,7 @@ from src.catboost_utilities.evaluate import _prepare_predictions
 from src.catboost_utilities.train import train_catboost
 from src.classifical_features import build_ts_features
 from src.configs.settings import Settings
-from src.custom_types import CatBoostParameters, ModelResult
+from src.custom_types import CatBoostParameters, ModelResult, Splits
 from src.data_processing import scale_panel_splits
 from src.evaluation import evaluate_multiple_splits, log_evaluation_results
 
@@ -64,7 +64,9 @@ class CatBoostClusteredForecastModel(BaseForecastModel):
         clusters = sorted({int(v) for v in self.cluster_labels.values() if int(v) >= 0})
         n_clusters = len(clusters)
         splits_acc: dict[str, list[tuple[pd.DataFrame, np.ndarray]]] = {
-            "train": [], "val": [], "test": []
+            "train": [],
+            "val": [],
+            "test": [],
         }
         importance_acc: dict[str, list[float]] = {}
 
@@ -76,42 +78,46 @@ class CatBoostClusteredForecastModel(BaseForecastModel):
                 progress_fn(f"кластер {i + 1}/{n_clusters}", i / n_clusters * 95)
 
             # Панели этого кластера
-            cluster_panels = {pid for pid, cid in self.cluster_labels.items() if int(cid) == cluster_id}
+            cluster_panels = {
+                pid for pid, cid in self.cluster_labels.items() if int(cid) == cluster_id
+            }
             if not cluster_panels:
                 continue
 
             panel_mask = full_features[panel_col].astype(str).isin(cluster_panels)
 
-            train_feat = full_features[
-                panel_mask & (full_features[_SPLIT_COL] == "train")
-            ].drop(columns=[_SPLIT_COL])
+            train_feat = full_features[panel_mask & (full_features[_SPLIT_COL] == "train")].drop(
+                columns=[_SPLIT_COL]
+            )
 
             val_feat = None
             if splits.val is not None:
-                v = full_features[
-                    panel_mask & (full_features[_SPLIT_COL] == "val")
-                ].drop(columns=[_SPLIT_COL])
+                v = full_features[panel_mask & (full_features[_SPLIT_COL] == "val")].drop(
+                    columns=[_SPLIT_COL]
+                )
                 val_feat = v if len(v) > 0 else None
 
-            test_feat = full_features[
-                panel_mask & (full_features[_SPLIT_COL] == "test")
-            ].drop(columns=[_SPLIT_COL])
+            test_feat = full_features[panel_mask & (full_features[_SPLIT_COL] == "test")].drop(
+                columns=[_SPLIT_COL]
+            )
 
             if len(train_feat) == 0 or len(test_feat) == 0:
                 logger.warning("Кластер %d: нет данных в train/test, пропускаем", cluster_id)
                 continue
 
             from src.custom_types import Splits
+
             panel_splits = Splits(train=train_feat, val=val_feat, test=test_feat)
 
             if should_scale:
-                ready = scale_panel_splits(
+                scaled = scale_panel_splits(
                     splits=(panel_splits.train, panel_splits.val, panel_splits.test),
                     panel_column=panel_col,
                     target_columns=[target],
                     apply_log=apply_log,
                 )
-                scalers = ready.scalers
+                ready: Splits[pd.DataFrame] = scaled
+                scalers = scaled.scalers
             else:
                 ready = panel_splits
                 scalers = None
@@ -158,7 +164,9 @@ class CatBoostClusteredForecastModel(BaseForecastModel):
             progress_fn("готово", 100.0)
 
         return ModelResult(
-            name=self.name, evaluation=evaluation, params=self.params,
+            name=self.name,
+            evaluation=evaluation,
+            params=self.params,
             feature_importance=feature_importance,
         )
 
@@ -192,7 +200,9 @@ class CatBoostClusteredForecastModel(BaseForecastModel):
             if on_forecast_step:
                 on_forecast_step(step_i + 1, n_clusters)
 
-            cluster_panels = {pid for pid, cid in self.cluster_labels.items() if int(cid) == cluster_id}
+            cluster_panels = {
+                pid for pid, cid in self.cluster_labels.items() if int(cid) == cluster_id
+            }
             cluster_df = full_df[full_df[panel_col].astype(str).isin(cluster_panels)].copy()
             if len(cluster_df) == 0:
                 continue
@@ -230,12 +240,16 @@ class CatBoostClusteredForecastModel(BaseForecastModel):
                 next_df[value_col] = preds
 
                 for i, row in next_df.iterrows():
-                    all_preds.append({
-                        "panel_id": str(row[panel_col]),
-                        "date": pd.Timestamp(row[date_col]).strftime("%Y-%m-%d"),
-                        "forecast": float(preds[i]),
-                    })
+                    all_preds.append(
+                        {
+                            "panel_id": str(row[panel_col]),
+                            "date": pd.Timestamp(row[date_col]).strftime("%Y-%m-%d"),
+                            "forecast": float(preds[i]),
+                        }
+                    )
 
-                running_df = pd.concat([running_df, next_df.drop(columns=[_FUTURE])], ignore_index=True)
+                running_df = pd.concat(
+                    [running_df, next_df.drop(columns=[_FUTURE])], ignore_index=True
+                )
 
         return pd.DataFrame(all_preds)

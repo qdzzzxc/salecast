@@ -24,6 +24,7 @@ _minio_bucket = os.getenv("MINIO_BUCKET", "salecast")
 def _get_s3():
     import boto3
     from botocore.client import Config
+
     return boto3.client(
         "s3",
         endpoint_url=_minio_endpoint,
@@ -72,8 +73,11 @@ async def run_clustering(
         )
     else:
         prep_job = next(
-            (j for j in sorted(project.jobs, key=lambda j: j.created_at, reverse=True)
-             if j.status == "done" and j.result and "split" in j.result),
+            (
+                j
+                for j in sorted(project.jobs, key=lambda j: j.created_at, reverse=True)
+                if j.status == "done" and j.result and "split" in j.result
+            ),
             None,
         )
 
@@ -122,8 +126,11 @@ async def get_cluster_data(
         raise HTTPException(status_code=404, detail="Проект не найден")
 
     clustering_job = next(
-        (j for j in sorted(project.jobs, key=lambda j: j.created_at, reverse=True)
-         if j.status == "done" and j.result and "clustering" in j.result),
+        (
+            j
+            for j in sorted(project.jobs, key=lambda j: j.created_at, reverse=True)
+            if j.status == "done" and j.result and "clustering" in j.result
+        ),
         None,
     )
     if clustering_job is None:

@@ -6,7 +6,7 @@ from src.configs.settings import Settings
 from src.custom_types import Splits
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_splits() -> Splits[pd.DataFrame]:
     """Синтетические Splits с 5 артикулами × 36 месяцев (train=30, val=3, test=3)."""
     rng = np.random.default_rng(42)
@@ -25,19 +25,21 @@ def sample_splits() -> Splits[pd.DataFrame]:
     df = pd.DataFrame(rows)
 
     train_df = df[df["date"] < "2023-07-01"].copy().reset_index(drop=True)
-    val_df = df[(df["date"] >= "2023-07-01") & (df["date"] < "2023-10-01")].copy().reset_index(drop=True)
+    val_df = (
+        df[(df["date"] >= "2023-07-01") & (df["date"] < "2023-10-01")].copy().reset_index(drop=True)
+    )
     test_df = df[df["date"] >= "2023-10-01"].copy().reset_index(drop=True)
 
     return Splits(train=train_df, val=val_df, test=test_df)
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_settings() -> Settings:
     """Дефолтный Settings с отключённым обратным преобразованием для тестов."""
     return Settings()
 
 
-@pytest.fixture()
+@pytest.fixture
 def full_df(sample_splits: Splits[pd.DataFrame]) -> pd.DataFrame:
     """Полный датафрейм (train+val+test) для тестов forecast_future."""
     return pd.concat(

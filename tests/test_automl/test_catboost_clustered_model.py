@@ -10,14 +10,16 @@ from src.configs.settings import Settings
 from src.custom_types import CatBoostParameters, ModelResult, Splits
 
 
-@pytest.fixture()
+@pytest.fixture
 def fast_params() -> CatBoostParameters:
     """Быстрые параметры CatBoost для тестов."""
     return CatBoostParameters(iterations=50, depth=3, verbose=False)
 
 
-@pytest.fixture()
-def cluster_labels(sample_splits: Splits[pd.DataFrame], sample_settings: Settings) -> dict[str, int]:
+@pytest.fixture
+def cluster_labels(
+    sample_splits: Splits[pd.DataFrame], sample_settings: Settings
+) -> dict[str, int]:
     """Метки кластеров: 2 кластера из 5 панелей."""
     panels = sample_splits.train[sample_settings.columns.id].unique().tolist()
     # A0, A1, A2 → кластер 0; A3, A4 → кластер 1
@@ -103,9 +105,7 @@ class TestCatBoostClusteredModel:
         model = CatBoostClusteredForecastModel(cluster_labels=cluster_labels, params=fast_params)
         result = model.fit_evaluate(sample_splits, sample_settings)
         panel_ids_in_result = {
-            p.panel_id
-            for split in result.evaluation.splits
-            for p in split.panel_metrics
+            p.panel_id for split in result.evaluation.splits for p in split.panel_metrics
         }
         panel_ids_in_data = set(sample_splits.train[sample_settings.columns.id].astype(str))
         assert panel_ids_in_result == panel_ids_in_data
@@ -151,9 +151,7 @@ class TestCatBoostClusteredModel:
         )
         result = model.fit_evaluate(sample_splits, sample_settings)
         panel_ids_in_result = {
-            p.panel_id
-            for split in result.evaluation.splits
-            for p in split.panel_metrics
+            p.panel_id for split in result.evaluation.splits for p in split.panel_metrics
         }
         # Выброс не должен быть в результатах
         assert first_panel not in panel_ids_in_result

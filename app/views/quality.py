@@ -20,11 +20,16 @@ _FREQ_OPTIONS: dict[str, str | None] = {
 }
 _FREQ_SEASON: dict[str, int] = {"D": 7, "W": 52, "MS": 12, "QS": 4}
 _FREQ_LABELS: dict[str, str] = {
-    "D": "Дневная", "B": "Рабочие дни",
+    "D": "Дневная",
+    "B": "Рабочие дни",
     "W": "Недельная",
-    "MS": "Месячная", "ME": "Месячная", "M": "Месячная",
-    "QS": "Квартальная", "Q": "Квартальная",
-    "A": "Годовая", "AS": "Годовая",
+    "MS": "Месячная",
+    "ME": "Месячная",
+    "M": "Месячная",
+    "QS": "Квартальная",
+    "Q": "Квартальная",
+    "A": "Годовая",
+    "AS": "Годовая",
 }
 
 _STATUS_EMOJI = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
@@ -51,10 +56,16 @@ def _render_summary(summary: dict[str, int], total_before: int, total_after: int
 
 def _render_status_chart(summary: dict[str, int]) -> None:
     """Отображает круговую диаграмму статусов."""
-    df = pd.DataFrame({
-        "Статус": ["Зелёный", "Жёлтый", "Красный"],
-        "Количество": [summary.get("green", 0), summary.get("yellow", 0), summary.get("red", 0)],
-    })
+    df = pd.DataFrame(
+        {
+            "Статус": ["Зелёный", "Жёлтый", "Красный"],
+            "Количество": [
+                summary.get("green", 0),
+                summary.get("yellow", 0),
+                summary.get("red", 0),
+            ],
+        }
+    )
     fig = px.pie(
         df,
         values="Количество",
@@ -78,13 +89,15 @@ def _render_panel_charts(panels: list[dict]) -> None:
     for i, panel in enumerate(panels):
         with cols[i]:
             fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=panel["dates"],
-                y=panel["values"],
-                mode="lines+markers",
-                line=dict(color="#F44336", width=2),
-                marker=dict(size=4),
-            ))
+            fig.add_trace(
+                go.Scatter(
+                    x=panel["dates"],
+                    y=panel["values"],
+                    mode="lines+markers",
+                    line=dict(color="#F44336", width=2),
+                    marker=dict(size=4),
+                )
+            )
             fig.update_layout(
                 title=f"ID: {panel['panel_id']}",
                 paper_bgcolor="rgba(0,0,0,0)",
@@ -146,7 +159,9 @@ def _render_ts_config(ts: dict, project_id: str) -> None:
     with col_f3:
         st.selectbox("Переопределить частоту", options=list(_FREQ_OPTIONS.keys()), key=freq_sel_key)
         if current_override and current_override != freq_auto:
-            st.caption(f"Автоопределено: {_FREQ_LABELS.get(freq_auto, freq_auto)} ({freq_auto}), период: {season_auto}")
+            st.caption(
+                f"Автоопределено: {_FREQ_LABELS.get(freq_auto, freq_auto)} ({freq_auto}), период: {season_auto}"
+            )
 
 
 _TRAIN_COLOR = "rgba(99, 149, 230, 0.15)"
@@ -160,22 +175,40 @@ def _add_split_zones(fig: go.Figure, dates: list, val_periods: int, test_periods
     train_end = n - val_periods - test_periods
     val_end = n - test_periods
     if train_end > 0:
-        fig.add_vrect(x0=dates[0], x1=dates[train_end] if train_end < n else dates[-1],
-                      fillcolor=_TRAIN_COLOR, line_width=0,
-                      annotation_text="train", annotation_position="top left")
+        fig.add_vrect(
+            x0=dates[0],
+            x1=dates[train_end] if train_end < n else dates[-1],
+            fillcolor=_TRAIN_COLOR,
+            line_width=0,
+            annotation_text="train",
+            annotation_position="top left",
+        )
     if 0 < train_end < val_end:
-        fig.add_vrect(x0=dates[train_end], x1=dates[val_end] if val_end < n else dates[-1],
-                      fillcolor=_VAL_COLOR, line_width=0,
-                      annotation_text="val", annotation_position="top left")
+        fig.add_vrect(
+            x0=dates[train_end],
+            x1=dates[val_end] if val_end < n else dates[-1],
+            fillcolor=_VAL_COLOR,
+            line_width=0,
+            annotation_text="val",
+            annotation_position="top left",
+        )
     if val_end < n:
-        fig.add_vrect(x0=dates[val_end], x1=dates[-1],
-                      fillcolor=_TEST_COLOR, line_width=0,
-                      annotation_text="test", annotation_position="top left")
+        fig.add_vrect(
+            x0=dates[val_end],
+            x1=dates[-1],
+            fillcolor=_TEST_COLOR,
+            line_width=0,
+            annotation_text="test",
+            annotation_position="top left",
+        )
 
 
 def _render_panels_table(
-    panels: list[dict], project_id: str, result: dict,
-    val_periods: int = 0, test_periods: int = 0,
+    panels: list[dict],
+    project_id: str,
+    result: dict,
+    val_periods: int = 0,
+    test_periods: int = 0,
 ) -> None:
     """Отображает таблицу с результатами диагностики по панелям."""
     rows = []
@@ -222,13 +255,15 @@ def _render_panels_table(
         if data:
             panel = data[0]
             fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=panel["dates"],
-                y=panel["values"],
-                mode="lines+markers",
-                line=dict(color="#7C6AF7", width=2),
-                marker=dict(size=5),
-            ))
+            fig.add_trace(
+                go.Scatter(
+                    x=panel["dates"],
+                    y=panel["values"],
+                    mode="lines+markers",
+                    line=dict(color="#7C6AF7", width=2),
+                    marker=dict(size=5),
+                )
+            )
             if val_periods or test_periods:
                 _add_split_zones(fig, panel["dates"], val_periods, test_periods)
             fig.update_layout(
@@ -276,7 +311,8 @@ def _render_mstl_decomposition(dates: list, values: list, freq: str) -> None:
     for i, (name, data, color) in enumerate(components, 1):
         fig.add_trace(
             go.Scatter(x=dates, y=data, mode="lines", name=name, line=dict(color=color, width=1.5)),
-            row=i, col=1,
+            row=i,
+            col=1,
         )
         fig.update_yaxes(title_text=name, row=i, col=1, showgrid=True, gridcolor="#333")
     fig.update_layout(
@@ -342,9 +378,11 @@ def render() -> None:
     panels = diagnostics.get("panels", [])
     if panels:
         _render_panels_table(
-            panels, project_id=project_id, result=result,
-            val_periods=val_periods, test_periods=test_periods,
+            panels,
+            project_id=project_id,
+            result=result,
+            val_periods=val_periods,
+            test_periods=test_periods,
         )
     else:
         st.info("Нет данных")
-

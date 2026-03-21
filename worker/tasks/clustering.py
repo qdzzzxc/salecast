@@ -38,6 +38,7 @@ def _get_engine():
 def _get_s3():
     import boto3
     from botocore.client import Config
+
     return boto3.client(
         "s3",
         endpoint_url=_minio_endpoint,
@@ -61,10 +62,15 @@ def _upload_csv(key: str, df: pd.DataFrame) -> None:
 
 def _add_step(session: Session, job, name: str, message: str) -> None:
     from api.models import Job
+
     steps = list(job.steps)
-    steps.append({"name": name, "message": message, "timestamp": datetime.now(timezone.utc).isoformat()})
+    steps.append(
+        {"name": name, "message": message, "timestamp": datetime.now(timezone.utc).isoformat()}
+    )
     session.execute(
-        Job.__table__.update().where(Job.__table__.c.id == job.id).values(steps=steps, status="running")
+        Job.__table__.update()
+        .where(Job.__table__.c.id == job.id)
+        .values(steps=steps, status="running")
     )
     session.commit()
     job.steps = steps
@@ -103,14 +109,21 @@ def run_clustering(
             if feature_mode == "seasonal":
                 _add_step(session, job, "features", "MSTL-декомпозиция → сезонные вектора")
                 from src.mstl_features import extract_seasonal_vectors
+
                 raw_features = extract_seasonal_vectors(
-                    train_df, panel_col, value_col, freq=freq,
+                    train_df,
+                    panel_col,
+                    value_col,
+                    freq=freq,
                 )
                 from sklearn.preprocessing import StandardScaler
+
                 scaler = StandardScaler()
                 scaled = scaler.fit_transform(raw_features.values)
                 features_df = pd.DataFrame(
-                    scaled, index=raw_features.index, columns=raw_features.columns,
+                    scaled,
+                    index=raw_features.index,
+                    columns=raw_features.columns,
                 )
             else:
                 feat_msg = "Извлечение признаков TS"
@@ -118,8 +131,11 @@ def run_clustering(
                     feat_msg += " + MSTL"
                 _add_step(session, job, "features", feat_msg)
                 features_df = extract_panel_features(
-                    train_df, panel_col, value_col,
-                    use_mstl=use_mstl, freq=freq,
+                    train_df,
+                    panel_col,
+                    value_col,
+                    use_mstl=use_mstl,
+                    freq=freq,
                 )
 
             silhouette_scores: dict[str, float] | None = None
@@ -127,16 +143,21 @@ def run_clustering(
 
             if method == "kmeans_auto":
                 _add_step(
-                    session, job, "clustering",
+                    session,
+                    job,
+                    "clustering",
                     f"Кластеризация (KMeans auto, k от 2 до {n_clusters})",
                 )
                 labels, raw_scores, best_k = cluster_panels_auto(
-                    features_df, max_k=n_clusters,
+                    features_df,
+                    max_k=n_clusters,
                 )
                 silhouette_scores = {str(k): v for k, v in raw_scores.items()}
             else:
                 _add_step(
-                    session, job, "clustering",
+                    session,
+                    job,
+                    "clustering",
                     f"Кластеризация ({method}, n={n_clusters})",
                 )
                 labels = cluster_panels(features_df, n_clusters=n_clusters, method=method)
@@ -160,10 +181,14 @@ def run_clustering(
             labels_df.columns = [panel_col, "cluster_id"]
             _upload_csv(labels_key, labels_df)
 
-            umap_df = pd.DataFrame(
-                {"x": embedding[:, 0], "y": embedding[:, 1], "cluster_id": labels.values},
-                index=features_df.index,
-            ).reset_index().rename(columns={"index": panel_col})
+            umap_df = (
+                pd.DataFrame(
+                    {"x": embedding[:, 0], "y": embedding[:, 1], "cluster_id": labels.values},
+                    index=features_df.index,
+                )
+                .reset_index()
+                .rename(columns={"index": panel_col})
+            )
             _upload_csv(umap_key, umap_df)
 
             _upload_csv(mean_ts_key, mean_ts_df)

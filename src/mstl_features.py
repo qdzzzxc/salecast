@@ -69,7 +69,9 @@ def decompose_mstl(
         seasonal_sum += arr
 
     result["seasonal"] = seasonal_sum
-    result["remainder"] = np.asarray(decomp.get("remainder", values - result["trend"] - seasonal_sum))
+    result["remainder"] = np.asarray(
+        decomp.get("remainder", values - result["trend"] - seasonal_sum)
+    )
     return result
 
 
@@ -121,11 +123,13 @@ def extract_mstl_features(
         var_tr = np.var(trend_plus_rem)
         ts = float(max(0.0, 1.0 - np.var(decomp["remainder"]) / var_tr)) if var_tr > 1e-12 else 0.0
 
-        records.append({
-            panel_col: panel_id,
-            "seasonality_strength": ss,
-            "trend_strength": ts,
-        })
+        records.append(
+            {
+                panel_col: panel_id,
+                "seasonality_strength": ss,
+                "trend_strength": ts,
+            }
+        )
 
     result = pd.DataFrame(records).set_index(panel_col)
     logger.info(

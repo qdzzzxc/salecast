@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 from src.configs.settings import Settings
-from src.custom_types import EvaluationResults, Splits, SplitEvaluation
+from src.custom_types import EvaluationResults, SplitEvaluation, Splits
 from src.evaluation import (
     combine_panel_results,
     compute_regression_metrics,

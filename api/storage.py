@@ -41,7 +41,9 @@ async def ensure_bucket() -> None:
         logger.warning("Не удалось создать бакет MinIO: %s", e)
 
 
-async def upload_file(key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
+async def upload_file(
+    key: str, data: bytes, content_type: str = "application/octet-stream"
+) -> None:
     """Загружает файл в MinIO."""
     async with _s3_client() as client:
         await client.put_object(Bucket=_BUCKET, Key=key, Body=data, ContentType=content_type)

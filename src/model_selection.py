@@ -134,6 +134,7 @@ def _log_split_info(
         f"Split: {n_panels} панелей. Train: {len(train_df)}{val_info}, Test: {len(test_df)}"
     )
 
+
 def temporal_panel_split_by_size(
     df: pd.DataFrame,
     panel_column: str,

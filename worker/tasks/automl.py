@@ -70,9 +70,13 @@ def _add_step(session: Session, job, name: str, message: str) -> None:
     from api.models import Job
 
     steps = list(job.steps)
-    steps.append({"name": name, "message": message, "timestamp": datetime.now(timezone.utc).isoformat()})
+    steps.append(
+        {"name": name, "message": message, "timestamp": datetime.now(timezone.utc).isoformat()}
+    )
     session.execute(
-        Job.__table__.update().where(Job.__table__.c.id == job.id).values(steps=steps, status="running")
+        Job.__table__.update()
+        .where(Job.__table__.c.id == job.id)
+        .values(steps=steps, status="running")
     )
     session.commit()
     job.steps = steps
@@ -131,7 +135,11 @@ def run_preprocessing(
             df[date_col] = pd.to_datetime(df[date_col])
             logger.info("Загружен CSV: %d строк, колонки: %s", len(df), list(df.columns))
             ts_config = infer_ts_config(df, date_col)
-            logger.info("Инференс частоты: freq=%s season_length=%d", ts_config.freq, ts_config.season_length)
+            logger.info(
+                "Инференс частоты: freq=%s season_length=%d",
+                ts_config.freq,
+                ts_config.season_length,
+            )
 
             # --- Фильтрация ---
             _add_step(session, job, "filtration", "Фильтрация временных рядов")
@@ -142,7 +150,9 @@ def run_preprocessing(
                 )
             )
             filtration_result = filter_time_series(df, filtration_config)
-            logger.info("Фильтрация: осталось %d панелей", filtration_result.df[panel_col].nunique())
+            logger.info(
+                "Фильтрация: осталось %d панелей", filtration_result.df[panel_col].nunique()
+            )
 
             filtered_samples: dict = {}
             for step_report in filtration_result.steps:
@@ -166,13 +176,21 @@ def run_preprocessing(
             logger.info("Диагностика: %s", diagnostics_result.summary())
 
             # --- Разбивка ---
-            _add_step(session, job, "split", f"Разбивка на train / val ({val_periods} п.) / test ({test_periods} п.)")
+            _add_step(
+                session,
+                job,
+                "split",
+                f"Разбивка на train / val ({val_periods} п.) / test ({test_periods} п.)",
+            )
             splits, dropped_by_split, panels_before_split = _split_panels(
                 filtration_result.df, panel_col, date_col, value_col, val_periods, test_periods
             )
             logger.info(
                 "Split: train=%d, val=%d, test=%d строк; пропущено панелей: %d",
-                len(splits.train), len(splits.val), len(splits.test), dropped_by_split,
+                len(splits.train),
+                len(splits.val),
+                len(splits.test),
+                dropped_by_split,
             )
 
             # --- Сохранение ---

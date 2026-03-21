@@ -30,6 +30,7 @@ _redis_password = os.getenv("REDIS_PASSWORD", "")
 
 async def _get_redis():
     import redis.asyncio as aioredis
+
     return aioredis.Redis(
         host=_redis_host, port=_redis_port, password=_redis_password, decode_responses=True
     )
@@ -52,16 +53,22 @@ def _load_forecast_csv(key: str) -> pd.DataFrame:
 
 def _get_forecast_job(project: Project) -> Job | None:
     return next(
-        (j for j in sorted(project.jobs, key=lambda j: j.created_at, reverse=True)
-         if j.status == "done" and j.result and "forecast" in j.result),
+        (
+            j
+            for j in sorted(project.jobs, key=lambda j: j.created_at, reverse=True)
+            if j.status == "done" and j.result and "forecast" in j.result
+        ),
         None,
     )
 
 
 def _get_automl_job(project: Project) -> Job | None:
     return next(
-        (j for j in sorted(project.jobs, key=lambda j: j.created_at, reverse=True)
-         if j.status == "done" and j.result and "automl" in j.result),
+        (
+            j
+            for j in sorted(project.jobs, key=lambda j: j.created_at, reverse=True)
+            if j.status == "done" and j.result and "automl" in j.result
+        ),
         None,
     )
 
