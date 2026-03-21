@@ -30,6 +30,7 @@ class ModelType(str, Enum):
     autoets = "autoets"
     autotheta = "autotheta"
     mstl = "mstl"
+    chronos = "chronos"
 
 
 QualityStatus: TypeAlias = Literal["green", "yellow", "red"]

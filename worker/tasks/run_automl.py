@@ -13,6 +13,7 @@ from src.automl.base import ModelCancelledError
 from src.automl.hyperopt import tune_catboost
 from src.automl.models import CatBoostForecastModel, CatBoostPerPanelForecastModel, SeasonalNaiveForecastModel, StatsForecastModel
 from src.automl.models.catboost_clustered_model import CatBoostClusteredForecastModel
+from src.automl.models.chronos_model import ChronosForecastModel
 from src.automl.selector import _get_metric_value
 from src.automl.ts_utils import get_downstream_lags, infer_ts_config, ts_config_from_freq
 from src.configs.settings import ColumnConfig, Settings
@@ -114,19 +115,21 @@ def _build_model(
     cluster_labels: dict[str, int] | None = None,
 ):
     """Создаёт модель заданного типа с переданными параметрами."""
-    if model_type == "seasonal_naive":
+    if model_type == ModelType.seasonal_naive:
         return SeasonalNaiveForecastModel()
-    if model_type == "catboost":
+    if model_type == ModelType.catboost:
         params = CatBoostParameters(**(catboost_params or {}))
         return CatBoostForecastModel(params=params)
-    if model_type == "catboost_per_panel":
+    if model_type == ModelType.catboost_per_panel:
         params = CatBoostParameters(**(catboost_params or {}))
         return CatBoostPerPanelForecastModel(params=params)
-    if model_type == "catboost_clustered":
+    if model_type == ModelType.catboost_clustered:
         params = CatBoostParameters(**(catboost_params or {}))
         return CatBoostClusteredForecastModel(cluster_labels=cluster_labels or {}, params=params)
-    if model_type == "autoarima":
+    if model_type == ModelType.autoarima:
         return StatsForecastModel(model_type=model_type, approximation=autoarima_approximation)
+    if model_type == ModelType.chronos:
+        return ChronosForecastModel()
     return StatsForecastModel(model_type=model_type)
 
 

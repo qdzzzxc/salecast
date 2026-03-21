@@ -6,6 +6,7 @@ from src.automl.base import BaseForecastModel
 from src.automl.config import AutoMLConfig
 from src.automl.models.catboost_clustered_model import CatBoostClusteredForecastModel
 from src.automl.models.catboost_model import CatBoostForecastModel, CatBoostPerPanelForecastModel
+from src.automl.models.chronos_model import ChronosForecastModel
 from src.automl.models.seasonal_naive_model import SeasonalNaiveForecastModel
 from src.automl.models.statsforecast_model import StatsForecastModel
 from src.configs.settings import Settings
@@ -100,6 +101,8 @@ def _build_model(
         return CatBoostClusteredForecastModel(cluster_labels=cluster_labels, params=catboost_params)
     if model_type in (ModelType.autoarima, ModelType.autoets, ModelType.autotheta, ModelType.mstl):
         return StatsForecastModel(model_type=model_type)
+    if model_type == ModelType.chronos:
+        return ChronosForecastModel()
     raise ValueError(f"Неизвестный тип модели: {model_type}")
 
 

@@ -36,6 +36,7 @@ _MODEL_LABELS = {
     ModelType.autoets: "AutoETS",
     ModelType.autotheta: "AutoTheta",
     ModelType.mstl: "MSTL",
+    ModelType.chronos: "Chronos-2",
 }
 _MODEL_COLORS = {
     ModelType.seasonal_naive: "#4CAF50",
@@ -46,6 +47,13 @@ _MODEL_COLORS = {
     ModelType.autoets: "#87CEEB",
     ModelType.autotheta: "#F7C948",
     ModelType.mstl: "#9B59B6",
+    ModelType.chronos: "#1ABC9C",
+}
+_GPU_MODELS = {ModelType.chronos}
+_MODEL_CAPTIONS: dict[ModelType, str] = {
+    ModelType.catboost_per_panel: "Медленно",
+    ModelType.mstl: "Декомпозиция",
+    ModelType.chronos: "GPU",
 }
 _METRICS = [m.value for m in MetricType if m != MetricType.r2]
 
@@ -84,19 +92,17 @@ def _render_config(has_clustering: bool = False) -> dict:
     defaults = {"seasonal_naive", "catboost"}
     for i, model in enumerate(_ALL_MODELS):
         with cols[i]:
-            disabled = model == "catboost_clustered" and not has_clustering
+            disabled = model == ModelType.catboost_clustered and not has_clustering
             checked = st.checkbox(
                 _MODEL_LABELS[model],
                 value=model in defaults and not disabled,
                 key=f"model_{model}",
                 disabled=disabled,
             )
-            if model == "catboost_per_panel":
-                st.caption("Медленно")
-            elif model == "catboost_clustered":
+            if model == ModelType.catboost_clustered:
                 st.caption("Нет кластеров" if disabled else "Из кластеризации")
-            elif model == "mstl":
-                st.caption("Декомпозиция")
+            elif model in _MODEL_CAPTIONS:
+                st.caption(_MODEL_CAPTIONS[model])
             if checked and not disabled:
                 selected.append(model)
 
