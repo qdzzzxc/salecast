@@ -306,6 +306,10 @@ def render() -> None:
         "kmeans_auto": "KMeans Auto (подбор N по silhouette)",
         "hdbscan": "HDBSCAN (авто N, выделяет выбросы)",
     }
+    _FEATURE_MODE_LABELS = {
+        "all": "Все признаки TS",
+        "seasonal": "Только сезонный паттерн (MSTL)",
+    }
     col1, col2 = st.columns(2)
     with col1:
         method = st.selectbox(
@@ -332,11 +336,33 @@ def render() -> None:
                 help="Минимальный размер кластера для HDBSCAN",
             )
 
+    # MSTL-признаки
+    col_feat, col_mstl = st.columns(2)
+    with col_feat:
+        feature_mode = st.selectbox(
+            "Признаки для кластеризации",
+            list(_FEATURE_MODE_LABELS.keys()),
+            format_func=lambda x: _FEATURE_MODE_LABELS[x],
+            key="cluster_feature_mode",
+        )
+    with col_mstl:
+        use_mstl = False
+        if feature_mode == "all":
+            use_mstl = st.checkbox(
+                "Добавить MSTL-признаки",
+                value=False,
+                key="cluster_use_mstl",
+                help="Добавляет seasonality_strength и trend_strength из MSTL-декомпозиции",
+            )
+        else:
+            st.caption("MSTL-декомпозиция → нормализованный сезонный вектор для каждой панели")
+
     if st.button("▶ Запустить кластеризацию", type="primary", use_container_width=True):
         with st.spinner("Запускаю..."):
             try:
                 job = run_clustering(
                     project_id, n_clusters=int(n_clusters), method=method,
+                    use_mstl=use_mstl, feature_mode=feature_mode,
                 )
             except Exception as e:
                 st.error(f"Ошибка запуска: {e}")

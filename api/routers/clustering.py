@@ -44,6 +44,8 @@ class ClusteringRunConfig(BaseModel):
 
     n_clusters: int = 5
     method: str = "kmeans"  # "kmeans" | "hdbscan" | "kmeans_auto"
+    use_mstl: bool = False  # добавить MSTL-признаки (seasonality/trend strength)
+    feature_mode: str = "all"  # "all" | "seasonal" (кластеризация только по сезонному паттерну)
     preprocessing_job_id: str | None = None  # None → берём последний preprocessing job
 
 
@@ -83,6 +85,10 @@ async def run_clustering(
     await db.commit()
     await db.refresh(job)
 
+    # Определяем freq из result preprocessing job
+    ts_info = (prep_job.result or {}).get("ts", {})
+    freq = ts_info.get("freq", "MS")
+
     celery_run_clustering.delay(
         str(job.id),
         str(project_id),
@@ -92,6 +98,9 @@ async def run_clustering(
         project.value_col,
         config.n_clusters,
         config.method,
+        config.use_mstl,
+        config.feature_mode,
+        freq,
     )
 
     return _to_job_schema(job)
