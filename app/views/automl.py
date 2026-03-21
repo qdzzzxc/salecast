@@ -15,8 +15,9 @@ from app.api_client import (
     skip_model,
 )
 from app.state import get_current_project
+from src.custom_types import MetricType, ModelType
 
-_ALL_MODELS = ["seasonal_naive", "catboost", "catboost_per_panel", "catboost_clustered", "autoarima", "autoets", "autotheta", "mstl"]
+_ALL_MODELS = list(ModelType)
 
 _FREQ_LABELS: dict[str, str] = {
     "D": "Дневная", "B": "Рабочие дни",
@@ -27,26 +28,26 @@ _FREQ_LABELS: dict[str, str] = {
 }
 _FREQ_SEASON: dict[str, int] = {"D": 7, "W": 52, "MS": 12, "QS": 4}
 _MODEL_LABELS = {
-    "seasonal_naive": "Seasonal Naive",
-    "catboost": "CatBoost",
-    "catboost_per_panel": "CatBoost per-panel",
-    "catboost_clustered": "CatBoost clustered",
-    "autoarima": "AutoARIMA",
-    "autoets": "AutoETS",
-    "autotheta": "AutoTheta",
-    "mstl": "MSTL",
+    ModelType.seasonal_naive: "Seasonal Naive",
+    ModelType.catboost: "CatBoost",
+    ModelType.catboost_per_panel: "CatBoost per-panel",
+    ModelType.catboost_clustered: "CatBoost clustered",
+    ModelType.autoarima: "AutoARIMA",
+    ModelType.autoets: "AutoETS",
+    ModelType.autotheta: "AutoTheta",
+    ModelType.mstl: "MSTL",
 }
 _MODEL_COLORS = {
-    "seasonal_naive": "#4CAF50",
-    "catboost": "#FF6B6B",
-    "catboost_per_panel": "#FF9999",
-    "catboost_clustered": "#FF6ED8",
-    "autoarima": "#FFB347",
-    "autoets": "#87CEEB",
-    "autotheta": "#F7C948",
-    "mstl": "#9B59B6",
+    ModelType.seasonal_naive: "#4CAF50",
+    ModelType.catboost: "#FF6B6B",
+    ModelType.catboost_per_panel: "#FF9999",
+    ModelType.catboost_clustered: "#FF6ED8",
+    ModelType.autoarima: "#FFB347",
+    ModelType.autoets: "#87CEEB",
+    ModelType.autotheta: "#F7C948",
+    ModelType.mstl: "#9B59B6",
 }
-_METRICS = ["mape", "rmse", "mae"]
+_METRICS = [m.value for m in MetricType if m != MetricType.r2]
 
 _TRAIN_COLOR = "rgba(99, 149, 230, 0.15)"
 _VAL_COLOR = "rgba(255, 180, 50, 0.2)"

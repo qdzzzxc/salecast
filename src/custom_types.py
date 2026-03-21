@@ -1,6 +1,7 @@
 import datetime as dt
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Generic, Literal, TypeAlias, TypeVar
 
 import numpy as np
@@ -11,8 +12,26 @@ from sklearn.preprocessing import StandardScaler
 AggMethod: TypeAlias = Literal["sum", "mean", "first", "last", "min", "max"] | Callable
 ClipBounds: TypeAlias = dict[str, dict[int | str, tuple[float, float]]]
 PanelScalers: TypeAlias = dict[str, dict[int, StandardScaler]]
-MetricType: TypeAlias = Literal["mape", "rmse", "mae", "r2"]
-ModelType: TypeAlias = Literal["seasonal_naive", "catboost", "catboost_per_panel", "catboost_clustered", "autoarima", "autoets", "autotheta", "mstl"]
+
+
+class MetricType(str, Enum):
+    mape = "mape"
+    rmse = "rmse"
+    mae = "mae"
+    r2 = "r2"
+
+
+class ModelType(str, Enum):
+    seasonal_naive = "seasonal_naive"
+    catboost = "catboost"
+    catboost_per_panel = "catboost_per_panel"
+    catboost_clustered = "catboost_clustered"
+    autoarima = "autoarima"
+    autoets = "autoets"
+    autotheta = "autotheta"
+    mstl = "mstl"
+
+
 QualityStatus: TypeAlias = Literal["green", "yellow", "red"]
 
 T = TypeVar("T")

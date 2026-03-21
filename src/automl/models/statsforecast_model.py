@@ -1,6 +1,5 @@
 import logging
 from collections.abc import Callable
-from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -8,12 +7,12 @@ from pydantic import BaseModel
 
 from src.automl.base import BaseForecastModel, CancelFn, ModelCancelledError, ProgressFn
 from src.configs.settings import Settings
-from src.custom_types import ModelResult, Splits
+from src.custom_types import ModelResult, ModelType, Splits
 from src.evaluation import evaluate_multiple_splits, log_evaluation_results
 
 logger = logging.getLogger(__name__)
 
-StatsForecastModelType = Literal["autoarima", "autoets", "autotheta", "mstl"]
+_SF_MODELS = {ModelType.autoarima, ModelType.autoets, ModelType.autotheta, ModelType.mstl}
 
 _MODEL_COL_MAP = {
     "autoarima": "AutoARIMA",
@@ -34,7 +33,7 @@ _FREQ_SEASON_LENGTHS: dict[str, list[int]] = {
 
 
 def _make_sf_model(
-    model_type: StatsForecastModelType,
+    model_type: ModelType,
     season_length: int = 12,
     approximation: bool = True,
     freq: str = "MS",
@@ -70,7 +69,7 @@ class _EmptyParams(BaseModel):
 class StatsForecastModel(BaseForecastModel):
     """Модели StatsForecast: AutoARIMA, AutoETS, AutoTheta, MSTL."""
 
-    def __init__(self, model_type: StatsForecastModelType, approximation: bool = True) -> None:
+    def __init__(self, model_type: ModelType, approximation: bool = True) -> None:
         """Инициализирует модель заданного типа."""
         self.model_type = model_type
         self.name = model_type
