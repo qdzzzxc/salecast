@@ -5,6 +5,7 @@ import pytest
 
 from src.custom_types import SplitRange, Splits
 from src.model_selection import (
+    generate_expanding_cv_folds,
     temporal_panel_split,
     temporal_panel_split_by_date,
     temporal_panel_split_by_size,
@@ -208,3 +209,74 @@ class TestTemporalPanelSplitBySize:
         df = _make_panel(n_panels=1, n_periods=3)
         with pytest.raises(ValueError):
             temporal_panel_split_by_size(df, "id", "date", test_size=3)
+
+
+class TestGenerateExpandingCVFolds:
+    def test_returns_correct_number_of_folds(self) -> None:
+        df = _make_panel(n_panels=2, n_periods=20)
+        folds = generate_expanding_cv_folds(df, n_folds=3, panel_column="id", time_column="date")
+        assert len(folds) == 3
+
+    def test_val_is_none_for_all_folds(self) -> None:
+        df = _make_panel(n_panels=2, n_periods=20)
+        folds = generate_expanding_cv_folds(df, n_folds=3, panel_column="id", time_column="date")
+        for fold in folds:
+            assert fold.val is None
+
+    def test_train_grows_across_folds(self) -> None:
+        """Train size должен расти от fold к fold."""
+        df = _make_panel(n_panels=2, n_periods=20)
+        folds = generate_expanding_cv_folds(df, n_folds=3, panel_column="id", time_column="date")
+        train_sizes = [len(f.train) for f in folds]
+        for i in range(1, len(train_sizes)):
+            assert train_sizes[i] > train_sizes[i - 1]
+
+    def test_test_size_is_consistent(self) -> None:
+        """Test size одинаковый для всех фолдов."""
+        df = _make_panel(n_panels=2, n_periods=20)
+        folds = generate_expanding_cv_folds(df, n_folds=3, panel_column="id", time_column="date")
+        test_sizes = [len(f.test) for f in folds]
+        assert len(set(test_sizes)) == 1
+
+    def test_no_overlap_train_test(self) -> None:
+        """Даты train и test не пересекаются."""
+        df = _make_panel(n_panels=2, n_periods=20)
+        folds = generate_expanding_cv_folds(df, n_folds=3, panel_column="id", time_column="date")
+        for fold in folds:
+            train_dates = set(fold.train["date"])
+            test_dates = set(fold.test["date"])
+            assert train_dates.isdisjoint(test_dates)
+
+    def test_temporal_ordering(self) -> None:
+        """Все даты train < все даты test."""
+        df = _make_panel(n_panels=2, n_periods=20)
+        folds = generate_expanding_cv_folds(df, n_folds=3, panel_column="id", time_column="date")
+        for fold in folds:
+            assert fold.train["date"].max() < fold.test["date"].min()
+
+    def test_all_panels_present_in_each_fold(self) -> None:
+        """Каждая панель есть в train и test каждого fold."""
+        df = _make_panel(n_panels=3, n_periods=20)
+        folds = generate_expanding_cv_folds(df, n_folds=3, panel_column="id", time_column="date")
+        expected_panels = set(df["id"].unique())
+        for fold in folds:
+            assert set(fold.train["id"].unique()) == expected_panels
+            assert set(fold.test["id"].unique()) == expected_panels
+
+    def test_raises_on_n_folds_less_than_2(self) -> None:
+        df = _make_panel()
+        with pytest.raises(ValueError):
+            generate_expanding_cv_folds(df, n_folds=1, panel_column="id", time_column="date")
+
+    def test_raises_on_bad_min_train_ratio(self) -> None:
+        df = _make_panel()
+        with pytest.raises(ValueError):
+            generate_expanding_cv_folds(
+                df, n_folds=3, panel_column="id", time_column="date", min_train_ratio=0.0
+            )
+
+    def test_raises_on_insufficient_data(self) -> None:
+        """Слишком мало дат для запрошенного числа фолдов."""
+        df = _make_panel(n_panels=1, n_periods=4)
+        with pytest.raises(ValueError):
+            generate_expanding_cv_folds(df, n_folds=5, panel_column="id", time_column="date")

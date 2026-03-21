@@ -121,6 +121,62 @@ def temporal_panel_split_by_date(
     return Splits(train=train_df, val=val_df, test=test_df)
 
 
+def generate_expanding_cv_folds(
+    df: pd.DataFrame,
+    n_folds: int,
+    panel_column: str,
+    time_column: str,
+    min_train_ratio: float = 0.5,
+) -> list[Splits[pd.DataFrame]]:
+    """Генерирует фолды для temporal cross-validation с expanding window.
+
+    Train растёт, test фиксированного размера сдвигается вперёд.
+    val = None для всех фолдов.
+    """
+    if n_folds < 2:
+        raise ValueError("n_folds должен быть >= 2")
+    if not 0 < min_train_ratio < 1:
+        raise ValueError("min_train_ratio должен быть в (0, 1)")
+
+    dates = sorted(df[time_column].unique())
+    n_dates = len(dates)
+
+    # Минимальный размер train (в количестве уникальных дат)
+    min_train_dates = max(2, int(n_dates * min_train_ratio))
+    remaining = n_dates - min_train_dates
+    if remaining < n_folds:
+        raise ValueError(
+            f"Недостаточно данных для {n_folds} фолдов: "
+            f"{n_dates} дат, min_train={min_train_dates}, осталось {remaining}"
+        )
+
+    test_size = remaining // n_folds
+
+    folds: list[Splits[pd.DataFrame]] = []
+    for fold_i in range(n_folds):
+        cutoff_idx = min_train_dates + fold_i * test_size
+        test_end_idx = cutoff_idx + test_size
+
+        train_dates = set(dates[:cutoff_idx])
+        test_dates = set(dates[cutoff_idx:test_end_idx])
+
+        train_df = df[df[time_column].isin(train_dates)].reset_index(drop=True)
+        test_df = df[df[time_column].isin(test_dates)].reset_index(drop=True)
+
+        folds.append(Splits(train=train_df, val=None, test=test_df))
+        logger.info(
+            "CV fold %d/%d: train=%d rows (%d dates), test=%d rows (%d dates)",
+            fold_i + 1,
+            n_folds,
+            len(train_df),
+            len(train_dates),
+            len(test_df),
+            len(test_dates),
+        )
+
+    return folds
+
+
 def _log_split_info(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame | None,
