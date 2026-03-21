@@ -4,24 +4,6 @@
 
 ---
 
-## 🔴 Критично — баги моделирования
-
-### 1. Разрывы на границах train/val/test
-**Симптом:** первая точка val/test на графике резко падает вниз относительно реального ряда.
-**Вероятные причины:**
-- Скейлинг: scaler fit на train, поэтому первое предсказание val скейлится по-другому
-- Off-by-one: предсказание строится для `last_train + 1`, но ряд может иметь пропуск дат
-- Lag-фичи: лаг-фичи на границе используют нули (expanded panel) вместо реальных значений
-
-**Что проверить:**
-- `src/data_processing.py` — как применяется `expand_to_full_panel` и fillna перед фичами
-- `src/classifical_features.py` — какие лаги строятся на первых точках val/test
-- `src/catboost_utilities/evaluate.py` — как собираются предсказания
-
-**Фикс-гипотеза:** передавать весь ряд (train+val+test) при построении фичей, обрезать по split-границам уже после. Это даст корректные лаги на границах.
-
----
-
 ## 🟡 Модели и алгоритмы
 
 ### 2. Ансамблирование моделей
@@ -52,15 +34,12 @@
 - Интегрирован в selector, run_automl, forecast
 - В UI: чекбокс disabled если нет результата кластеризации
 
-### 6. TS2Vec → CatBoost/MLP
-**Что:** контрастивное обучение представлений ВР → embeddings → downstream regressor.
-**Источник кода (уже изучен):**
-- Ядро: `/home/nikita/projects/sales_ts_prediction/repos/ts2vec/`
-- Обёртки: `/home/nikita/projects/sales_ts_prediction/src/ts2vec_utilities/`
-- MLP head: `/home/nikita/projects/sales_ts_prediction/src/mlp_utilities/`
-- Regression features: `/home/nikita/projects/sales_ts_prediction/src/get_features.py`
-**Реализация:** скопировать ядро в `src/automl/ts2vec/`, адаптировать utilities под `BaseForecastModel`.
-**Зависимости:** `uv add torch --optional neural`
+### 6. TS2Vec → CatBoost ✅ ГОТОВО
+- `TS2VecForecastModel` в `src/automl/models/ts2vec_model.py`
+- Ядро TS2Vec (dilated conv encoder + contrastive loss) в `src/automl/ts2vec/`
+- TS2Vec encoder → full_series embeddings → CatBoost downstream
+- GPU автодетекция, прогресс-бар, feature importance
+- Параметры (output_dims, n_epochs, batch_size) через весь стек
 
 ### 7. Chronos-2 (Amazon) ✅ ГОТОВО
 - `ChronosForecastModel` в `src/automl/models/chronos_model.py`
@@ -72,28 +51,11 @@
 Исследование: запустить `TimeSeriesPredictor` на демо-данных, оценить качество vs размер (~2–4 ГБ) vs скорость.
 Откладываем до завершения остальных моделей.
 
-### 9. Feature importance — анализ важности признаков
-**Что:** после обучения CatBoost показать какие фичи реально важны (lag_1, trend, cdf, calendar и т.д.).
-**Зачем:** много кастомных признаков (lags, rolling, EMA, trend, CDF, calendar) — нужно понимать какие работают, какие шум.
-**Реализация:**
-- Извлечь `model.get_feature_importance()` после `train_catboost`
-- Сохранить top-N фичей в `ModelResult` (новое поле `feature_importance: list[tuple[str, float]]`)
-- В UI AutoML: bar chart с top-20 фичами для каждой CatBoost-модели
-- Опционально: в Forecast UI показать importance выбранной модели
-**Где:** `src/catboost_utilities/train.py`, `src/custom_types.py`, `app/views/automl.py`
+### 9. Feature importance ✅ ГОТОВО
+- bar chart top-20 для всех CatBoost-моделей в UI AutoML
 
-### 10. MSTL-сезонность — выделение и использование
-**Что:** декомпозиция ряда через MSTL (Multiple Seasonal-Trend decomposition using Loess).
-**Применения:**
-- **Признак для кластеризации:** сила сезонности (seasonality strength) как фича в `extract_panel_features` — панели с похожей сезонностью в один кластер
-- **Признак для CatBoost:** seasonal component как дополнительная фича в `build_ts_features`
-- **Отдельная модель:** MSTL + downstream forecaster (AutoETS/CES) — уже частично описано в п.11
-**Источник:** `statsforecast.models.MSTL` или `statsmodels.tsa.seasonal.MSTL`
-**Реализация:**
-- `src/mstl_features.py` — `extract_mstl_components(series, season_lengths)` → trend, seasonal, residual; `seasonality_strength(series, season_lengths) -> float`
-- Интеграция в `src/clustering.py` → `extract_panel_features` добавляет seasonality_strength
-- Интеграция в `src/classifical_features.py` → опциональная seasonal-фича в `build_ts_features`
-- Toggle в Settings: `use_mstl_features`, `mstl_season_lengths`
+### 10. MSTL-сезонность ✅ ГОТОВО
+- Декомпозиция, признак CatBoost, визуализация на экране Качество
 
 ### 11. Мультисезонность для дневных данных (MSTL) ✅ ГОТОВО
 - `StatsForecastModel` поддерживает `model_type="mstl"` — MSTL + AutoETS(ZZN) trend forecaster
@@ -233,3 +195,8 @@
 - Feature importance: bar chart top-20 для всех CatBoost-моделей
 - MSTL: модель (декомпозиция + AutoETS), признак для CatBoost, визуализация на экране Качество
 - Chronos-2: zero-shot foundation model, GPU/CPU, pandas API
+- Фикс: разрывы на границах train/val/test (лаг-фичи) + 32 интеграционных теста feature engineering
+- ChronosParameters через весь стек (API → worker → UI)
+- Multi-stage Dockerfile: neural deps только в worker
+- ruff + mypy: все ошибки исправлены
+- TS2Vec + CatBoost: contrastive encoder → embeddings → downstream CatBoost, GPU/CPU, 14 тестов

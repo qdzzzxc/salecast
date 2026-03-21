@@ -105,8 +105,6 @@ class CatBoostClusteredForecastModel(BaseForecastModel):
                 logger.warning("Кластер %d: нет данных в train/test, пропускаем", cluster_id)
                 continue
 
-            from src.custom_types import Splits
-
             panel_splits = Splits(train=train_feat, val=val_feat, test=test_feat)
 
             if should_scale:

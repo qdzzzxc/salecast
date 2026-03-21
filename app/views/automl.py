@@ -42,6 +42,7 @@ _MODEL_LABELS = {
     ModelType.autotheta: "AutoTheta",
     ModelType.mstl: "MSTL",
     ModelType.chronos: "Chronos-2",
+    ModelType.ts2vec: "TS2Vec + CatBoost",
 }
 _MODEL_COLORS = {
     ModelType.seasonal_naive: "#4CAF50",
@@ -53,12 +54,14 @@ _MODEL_COLORS = {
     ModelType.autotheta: "#F7C948",
     ModelType.mstl: "#9B59B6",
     ModelType.chronos: "#1ABC9C",
+    ModelType.ts2vec: "#E67E22",
 }
-_GPU_MODELS = {ModelType.chronos}
+_GPU_MODELS = {ModelType.chronos, ModelType.ts2vec}
 _MODEL_CAPTIONS: dict[ModelType, str] = {
     ModelType.catboost_per_panel: "Медленно",
     ModelType.mstl: "Декомпозиция",
     ModelType.chronos: "Zero-shot, GPU",
+    ModelType.ts2vec: "Encoder + CatBoost, GPU",
 }
 _METRICS = [m.value for m in MetricType if m != MetricType.r2]
 
@@ -227,6 +230,36 @@ def _render_config(has_clustering: bool = False) -> dict:
                 help="Уменьшить при нехватке GPU памяти",
             )
 
+    ts2vec_output_dims = 320
+    ts2vec_n_epochs = 50
+    ts2vec_batch_size = 16
+    if ModelType.ts2vec in selected:
+        with st.expander("Настройки TS2Vec"):
+            ts2vec_output_dims = st.number_input(
+                "output_dims (размерность эмбеддингов)",
+                min_value=32,
+                max_value=1024,
+                step=32,
+                value=st.session_state.get("ts2vec_output_dims", 320),
+                key="ts2vec_output_dims",
+            )
+            ts2vec_n_epochs = st.number_input(
+                "n_epochs (эпохи энкодера)",
+                min_value=5,
+                max_value=500,
+                step=5,
+                value=st.session_state.get("ts2vec_n_epochs", 50),
+                key="ts2vec_n_epochs",
+            )
+            ts2vec_batch_size = st.number_input(
+                "batch_size",
+                min_value=4,
+                max_value=256,
+                step=4,
+                value=st.session_state.get("ts2vec_batch_size", 16),
+                key="ts2vec_batch_size",
+            )
+
     autoarima_approx = True
     if "autoarima" in selected:
         with st.expander("Настройки AutoARIMA"):
@@ -296,6 +329,11 @@ def _render_config(has_clustering: bool = False) -> dict:
             "context_length": int(chronos_context_length) if chronos_context_length else None,
             "cross_learning": bool(chronos_cross_learning),
             "batch_size": int(chronos_batch_size),
+        },
+        "ts2vec_params": {
+            "output_dims": int(ts2vec_output_dims),
+            "n_epochs": int(ts2vec_n_epochs),
+            "batch_size": int(ts2vec_batch_size),
         },
         "autoarima_approximation": bool(autoarima_approx),
         "feature_params": {
@@ -841,6 +879,7 @@ def render() -> None:
                     autoarima_approximation=cfg["autoarima_approximation"],
                     feature_params=cfg["feature_params"],
                     chronos_params=cfg["chronos_params"],
+                    ts2vec_params=cfg["ts2vec_params"],
                 )
             except Exception as e:
                 st.error(f"Ошибка запуска: {e}")

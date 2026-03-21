@@ -19,6 +19,7 @@ from src.automl.models import (
 )
 from src.automl.models.catboost_clustered_model import CatBoostClusteredForecastModel
 from src.automl.models.chronos_model import ChronosForecastModel, ChronosParameters
+from src.automl.models.ts2vec_model import TS2VecForecastModel, TS2VecParameters
 from src.automl.selector import _get_metric_value
 from src.automl.ts_utils import get_downstream_lags, infer_ts_config, ts_config_from_freq
 from src.configs.settings import ColumnConfig, Settings
@@ -130,6 +131,7 @@ def _build_model(
     autoarima_approximation: bool = True,
     cluster_labels: dict[str, int] | None = None,
     chronos_params: dict | None = None,
+    ts2vec_params: dict | None = None,
 ):
     """Создаёт модель заданного типа с переданными параметрами."""
     if model_type == ModelType.seasonal_naive:
@@ -147,6 +149,8 @@ def _build_model(
         return StatsForecastModel(model_type=model_type, approximation=autoarima_approximation)
     if model_type == ModelType.chronos:
         return ChronosForecastModel(params=ChronosParameters(**(chronos_params or {})))
+    if model_type == ModelType.ts2vec:
+        return TS2VecForecastModel(params=TS2VecParameters(**(ts2vec_params or {})))
     return StatsForecastModel(model_type=model_type)
 
 
@@ -198,6 +202,7 @@ def run_automl(
     autoarima_approximation: bool = True,
     feature_params: dict | None = None,
     chronos_params: dict | None = None,
+    ts2vec_params: dict | None = None,
 ) -> dict:
     """Запускает AutoML: обучает модели на отфильтрованных панелях, выбирает лучшую."""
     from api.models import Job
@@ -318,6 +323,7 @@ def run_automl(
                     autoarima_approximation,
                     cluster_labels,
                     chronos_params,
+                    ts2vec_params,
                 )
 
                 cancel_key = f"cancel:automl:{job_id}:{model_type}"
@@ -422,6 +428,7 @@ def run_automl(
                     },
                     "feature_params": feature_params or {},
                     "chronos_params": chronos_params or {},
+                    "ts2vec_params": ts2vec_params or {},
                 },
             }
 

@@ -129,6 +129,7 @@ async def _run_automl(
     autoarima_approximation: bool = True,
     feature_params: dict | None = None,
     chronos_params: dict | None = None,
+    ts2vec_params: dict | None = None,
 ) -> dict[str, Any]:
     """Запускает AutoML через API."""
     payload: dict = {
@@ -148,6 +149,8 @@ async def _run_automl(
         payload["feature_params"] = feature_params
     if chronos_params is not None:
         payload["chronos_params"] = chronos_params
+    if ts2vec_params is not None:
+        payload["ts2vec_params"] = ts2vec_params
     async with aiohttp.ClientSession() as session:
         async with session.post(
             f"{_API_URL}/projects/{project_id}/run_automl",
@@ -169,6 +172,7 @@ def run_automl(
     autoarima_approximation: bool = True,
     feature_params: dict | None = None,
     chronos_params: dict | None = None,
+    ts2vec_params: dict | None = None,
 ) -> dict[str, Any]:
     """Запускает AutoML (синхронная обёртка)."""
     return _run(
@@ -184,6 +188,7 @@ def run_automl(
             autoarima_approximation,
             feature_params,
             chronos_params,
+            ts2vec_params,
         )
     )
 
