@@ -11,9 +11,14 @@ from sqlalchemy.orm import Session
 from celery_app import celery
 from src.automl.base import ModelCancelledError
 from src.automl.hyperopt import tune_catboost
-from src.automl.models import CatBoostForecastModel, CatBoostPerPanelForecastModel, SeasonalNaiveForecastModel, StatsForecastModel
+from src.automl.models import (
+    CatBoostForecastModel,
+    CatBoostPerPanelForecastModel,
+    SeasonalNaiveForecastModel,
+    StatsForecastModel,
+)
 from src.automl.models.catboost_clustered_model import CatBoostClusteredForecastModel
-from src.automl.models.chronos_model import ChronosForecastModel
+from src.automl.models.chronos_model import ChronosForecastModel, ChronosParameters
 from src.automl.selector import _get_metric_value
 from src.automl.ts_utils import get_downstream_lags, infer_ts_config, ts_config_from_freq
 from src.configs.settings import ColumnConfig, Settings
@@ -44,12 +49,16 @@ def _get_engine():
 
 def _get_redis():
     import redis
-    return redis.Redis(host=_redis_host, port=_redis_port, password=_redis_password, decode_responses=True)
+
+    return redis.Redis(
+        host=_redis_host, port=_redis_port, password=_redis_password, decode_responses=True
+    )
 
 
 def _get_s3():
     import boto3
     from botocore.client import Config
+
     return boto3.client(
         "s3",
         endpoint_url=_minio_endpoint,
@@ -93,16 +102,23 @@ def _build_predictions_df(result, splits: Splits, panel_col: str, date_col: str)
             y_pred = list(pm.y_pred) if hasattr(pm.y_pred, "__iter__") else []
             if len(dates) == len(y_pred):
                 for d, p in zip(dates, y_pred):
-                    rows.append({"panel_id": panel_id, "date": d, "split": split_name, "y_pred": float(p)})
+                    rows.append(
+                        {"panel_id": panel_id, "date": d, "split": split_name, "y_pred": float(p)}
+                    )
     return pd.DataFrame(rows)
 
 
 def _add_step(session: Session, job, name: str, message: str) -> None:
     from api.models import Job
+
     steps = list(job.steps)
-    steps.append({"name": name, "message": message, "timestamp": datetime.now(timezone.utc).isoformat()})
+    steps.append(
+        {"name": name, "message": message, "timestamp": datetime.now(timezone.utc).isoformat()}
+    )
     session.execute(
-        Job.__table__.update().where(Job.__table__.c.id == job.id).values(steps=steps, status="running")
+        Job.__table__.update()
+        .where(Job.__table__.c.id == job.id)
+        .values(steps=steps, status="running")
     )
     session.commit()
     job.steps = steps
@@ -113,6 +129,7 @@ def _build_model(
     catboost_params: dict | None = None,
     autoarima_approximation: bool = True,
     cluster_labels: dict[str, int] | None = None,
+    chronos_params: dict | None = None,
 ):
     """Создаёт модель заданного типа с переданными параметрами."""
     if model_type == ModelType.seasonal_naive:
@@ -129,7 +146,7 @@ def _build_model(
     if model_type == ModelType.autoarima:
         return StatsForecastModel(model_type=model_type, approximation=autoarima_approximation)
     if model_type == ModelType.chronos:
-        return ChronosForecastModel()
+        return ChronosForecastModel(params=ChronosParameters(**(chronos_params or {})))
     return StatsForecastModel(model_type=model_type)
 
 
@@ -180,6 +197,7 @@ def run_automl(
     catboost_params: dict | None = None,
     autoarima_approximation: bool = True,
     feature_params: dict | None = None,
+    chronos_params: dict | None = None,
 ) -> dict:
     """Запускает AutoML: обучает модели на отфильтрованных панелях, выбирает лучшую."""
     from api.models import Job
@@ -221,7 +239,10 @@ def run_automl(
             lags = get_downstream_lags(ts_config.freq)
             logger.info(
                 "AutoML: freq=%s season_length=%d lags=%s (источник: %s)",
-                ts_config.freq, ts_config.season_length, lags, "явно задан" if freq else "автоопределение",
+                ts_config.freq,
+                ts_config.season_length,
+                lags,
+                "явно задан" if freq else "автоопределение",
             )
             base_settings = Settings()
             downstream_update: dict = {"lags": lags}
@@ -241,40 +262,69 @@ def run_automl(
                 clustering_info = prep_job.result.get("clustering")
                 if clustering_info:
                     labels_df = _load_csv(clustering_info["labels_key"])
-                    cluster_labels = dict(zip(labels_df.iloc[:, 0].astype(str), labels_df["cluster_id"].astype(int)))
+                    cluster_labels = dict(
+                        zip(labels_df.iloc[:, 0].astype(str), labels_df["cluster_id"].astype(int))
+                    )
                     logger.info("Загружены cluster_labels: %d панелей", len(cluster_labels))
                 else:
-                    logger.warning("catboost_clustered запрошен, но результатов кластеризации нет — пропускаем")
+                    logger.warning(
+                        "catboost_clustered запрошен, но результатов кластеризации нет — пропускаем"
+                    )
                     models = [m for m in models if m != "catboost_clustered"]
 
             if use_hyperopt and "catboost" in models:
                 timeout_label = f", timeout {hyperopt_timeout}s" if hyperopt_timeout else ""
-                _add_step(session, job, "hyperopt", f"Hyperopt CatBoost ({n_trials} trials{timeout_label})")
+                _add_step(
+                    session,
+                    job,
+                    "hyperopt",
+                    f"Hyperopt CatBoost ({n_trials} trials{timeout_label})",
+                )
                 redis_client.xadd(stream_key, {"type": "hyperopt_start", "n_trials": str(n_trials)})
                 try:
-                    best_cb_params = tune_catboost(splits, settings, n_trials=n_trials, timeout=hyperopt_timeout)
+                    best_cb_params = tune_catboost(
+                        splits, settings, n_trials=n_trials, timeout=hyperopt_timeout
+                    )
                     catboost_params = best_cb_params.model_dump()
                     redis_client.xadd(stream_key, {"type": "hyperopt_done"})
                     logger.info("Hyperopt завершён: %s", catboost_params)
                 except Exception:
-                    logger.exception("Hyperopt завершился с ошибкой, используем дефолтные параметры")
+                    logger.exception(
+                        "Hyperopt завершился с ошибкой, используем дефолтные параметры"
+                    )
                     redis_client.xadd(stream_key, {"type": "hyperopt_failed"})
 
             all_results = []
             for i, model_type in enumerate(models):
-                _add_step(session, job, f"train_{model_type}", f"Обучение {model_type} ({i + 1}/{len(models)})")
-                redis_client.xadd(stream_key, {
-                    "type": "model_start",
-                    "model": model_type,
-                    "n": str(i + 1),
-                    "total": str(len(models)),
-                })
+                _add_step(
+                    session,
+                    job,
+                    f"train_{model_type}",
+                    f"Обучение {model_type} ({i + 1}/{len(models)})",
+                )
+                redis_client.xadd(
+                    stream_key,
+                    {
+                        "type": "model_start",
+                        "model": model_type,
+                        "n": str(i + 1),
+                        "total": str(len(models)),
+                    },
+                )
 
-                model = _build_model(model_type, catboost_params, autoarima_approximation, cluster_labels)
+                model = _build_model(
+                    model_type,
+                    catboost_params,
+                    autoarima_approximation,
+                    cluster_labels,
+                    chronos_params,
+                )
 
                 cancel_key = f"cancel:automl:{job_id}:{model_type}"
 
-                def _progress_fn(message: str, pct: float | None = None, _mt: str = model_type) -> None:
+                def _progress_fn(
+                    message: str, pct: float | None = None, _mt: str = model_type
+                ) -> None:
                     payload: dict = {"type": "model_progress", "model": _mt, "message": message}
                     if pct is not None:
                         payload["pct"] = f"{pct:.1f}"
@@ -314,13 +364,23 @@ def run_automl(
 
                 val_mape = _extract_metric(result, selection_metric, "val")
                 test_mape = _extract_metric(result, selection_metric, "test")
-                redis_client.xadd(stream_key, {
-                    "type": "model_done",
-                    "model": model_type,
-                    f"val_{selection_metric}": f"{val_mape:.4f}",
-                    f"test_{selection_metric}": f"{test_mape:.4f}",
-                })
-                logger.info("Модель %s: val_%s=%.4f test_%s=%.4f", model_type, selection_metric, val_mape, selection_metric, test_mape)
+                redis_client.xadd(
+                    stream_key,
+                    {
+                        "type": "model_done",
+                        "model": model_type,
+                        f"val_{selection_metric}": f"{val_mape:.4f}",
+                        f"test_{selection_metric}": f"{test_mape:.4f}",
+                    },
+                )
+                logger.info(
+                    "Модель %s: val_%s=%.4f test_%s=%.4f",
+                    model_type,
+                    selection_metric,
+                    val_mape,
+                    selection_metric,
+                    test_mape,
+                )
 
             best = min(
                 all_results,
@@ -330,7 +390,10 @@ def run_automl(
 
             _add_step(session, job, "saving", "Сохранение результатов AutoML")
 
-            pred_keys = {r.name: f"projects/{project_id}/automl_predictions/{r.name}.csv" for r in all_results}
+            pred_keys = {
+                r.name: f"projects/{project_id}/automl_predictions/{r.name}.csv"
+                for r in all_results
+            }
 
             model_results = [
                 {
@@ -358,6 +421,7 @@ def run_automl(
                         "freq_source": "manual" if freq else "auto",
                     },
                     "feature_params": feature_params or {},
+                    "chronos_params": chronos_params or {},
                 },
             }
 

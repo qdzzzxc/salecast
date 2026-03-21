@@ -20,11 +20,16 @@ from src.custom_types import MetricType, ModelType
 _ALL_MODELS = list(ModelType)
 
 _FREQ_LABELS: dict[str, str] = {
-    "D": "Дневная", "B": "Рабочие дни",
+    "D": "Дневная",
+    "B": "Рабочие дни",
     "W": "Недельная",
-    "MS": "Месячная", "ME": "Месячная", "M": "Месячная",
-    "QS": "Квартальная", "Q": "Квартальная",
-    "A": "Годовая", "AS": "Годовая",
+    "MS": "Месячная",
+    "ME": "Месячная",
+    "M": "Месячная",
+    "QS": "Квартальная",
+    "Q": "Квартальная",
+    "A": "Годовая",
+    "AS": "Годовая",
 }
 _FREQ_SEASON: dict[str, int] = {"D": 7, "W": 52, "MS": 12, "QS": 4}
 _MODEL_LABELS = {
@@ -53,7 +58,7 @@ _GPU_MODELS = {ModelType.chronos}
 _MODEL_CAPTIONS: dict[ModelType, str] = {
     ModelType.catboost_per_panel: "Медленно",
     ModelType.mstl: "Декомпозиция",
-    ModelType.chronos: "GPU",
+    ModelType.chronos: "Zero-shot, GPU",
 }
 _METRICS = [m.value for m in MetricType if m != MetricType.r2]
 
@@ -81,7 +86,9 @@ def _load_yaml_config(uploaded) -> None:
 def _render_config(has_clustering: bool = False) -> dict:
     """Конфигурация AutoML. Возвращает словарь параметров для API."""
     with st.popover("Загрузить конфиг (YAML)"):
-        uploaded = st.file_uploader("YAML файл", type=["yaml", "yml"], key="config_upload", label_visibility="collapsed")
+        uploaded = st.file_uploader(
+            "YAML файл", type=["yaml", "yml"], key="config_upload", label_visibility="collapsed"
+        )
         if uploaded:
             _load_yaml_config(uploaded)
             st.rerun()
@@ -117,16 +124,29 @@ def _render_config(has_clustering: bool = False) -> dict:
     if any(m in selected for m in ("catboost", "catboost_per_panel", "catboost_clustered")):
         with st.expander("Настройки CatBoost (общие для всех вариантов)"):
             cb_iterations = st.number_input(
-                "iterations", min_value=50, max_value=5000, step=50,
-                value=st.session_state.get("cb_iterations", 1000), key="cb_iterations",
+                "iterations",
+                min_value=50,
+                max_value=5000,
+                step=50,
+                value=st.session_state.get("cb_iterations", 1000),
+                key="cb_iterations",
             )
             cb_lr = st.number_input(
-                "learning_rate", min_value=0.001, max_value=1.0, step=0.005, format="%.3f",
-                value=st.session_state.get("cb_lr", 0.03), key="cb_lr",
+                "learning_rate",
+                min_value=0.001,
+                max_value=1.0,
+                step=0.005,
+                format="%.3f",
+                value=st.session_state.get("cb_lr", 0.03),
+                key="cb_lr",
             )
             cb_depth = st.number_input(
-                "depth", min_value=2, max_value=12, step=1,
-                value=st.session_state.get("cb_depth", 6), key="cb_depth",
+                "depth",
+                min_value=2,
+                max_value=12,
+                step=1,
+                value=st.session_state.get("cb_depth", 6),
+                key="cb_depth",
             )
             st.caption("При hyperopt=True Optuna перезапишет эти параметры")
             st.markdown("**Расширенные признаки**")
@@ -140,8 +160,12 @@ def _render_config(has_clustering: bool = False) -> dict:
                 )
                 if use_trend:
                     trend_window = st.number_input(
-                        "Окно тренда", min_value=3, max_value=24, step=1,
-                        value=st.session_state.get("cb_trend_window", 6), key="cb_trend_window",
+                        "Окно тренда",
+                        min_value=3,
+                        max_value=24,
+                        step=1,
+                        value=st.session_state.get("cb_trend_window", 6),
+                        key="cb_trend_window",
                     )
             with col_f2:
                 use_cdf = st.checkbox(
@@ -152,14 +176,55 @@ def _render_config(has_clustering: bool = False) -> dict:
                 )
                 if use_cdf:
                     cdf_decay = st.number_input(
-                        "Затухание CDF", min_value=0.5, max_value=1.0, step=0.05, format="%.2f",
-                        value=st.session_state.get("cb_cdf_decay", 0.9), key="cb_cdf_decay",
+                        "Затухание CDF",
+                        min_value=0.5,
+                        max_value=1.0,
+                        step=0.05,
+                        format="%.2f",
+                        value=st.session_state.get("cb_cdf_decay", 0.9),
+                        key="cb_cdf_decay",
                     )
             use_mstl_seasonal = st.checkbox(
                 "MSTL-сезонность",
                 value=st.session_state.get("cb_use_mstl_seasonal", False),
                 key="cb_use_mstl_seasonal",
                 help="Добавляет сезонную компоненту MSTL как признак (декомпозиция ряда)",
+            )
+
+    chronos_context_length = None
+    chronos_cross_learning = False
+    chronos_batch_size = 256
+    if ModelType.chronos in selected:
+        with st.expander("Настройки Chronos-2"):
+            use_ctx = st.checkbox(
+                "Ограничить контекст",
+                value=st.session_state.get("chronos_use_ctx", False),
+                key="chronos_use_ctx",
+                help="По умолчанию используется весь ряд (макс 8192 токенов)",
+            )
+            if use_ctx:
+                chronos_context_length = st.number_input(
+                    "context_length",
+                    min_value=64,
+                    max_value=8192,
+                    step=64,
+                    value=st.session_state.get("chronos_ctx_len", 512),
+                    key="chronos_ctx_len",
+                )
+            chronos_cross_learning = st.checkbox(
+                "Cross-learning (связи между рядами)",
+                value=st.session_state.get("chronos_cross", False),
+                key="chronos_cross",
+                help="Учитывать зависимости между панелями при прогнозе",
+            )
+            chronos_batch_size = st.number_input(
+                "batch_size",
+                min_value=1,
+                max_value=1024,
+                step=32,
+                value=st.session_state.get("chronos_batch", 256),
+                key="chronos_batch",
+                help="Уменьшить при нехватке GPU памяти",
             )
 
     autoarima_approx = True
@@ -184,26 +249,37 @@ def _render_config(has_clustering: bool = False) -> dict:
         col_trials, col_timeout = st.columns(2)
         with col_trials:
             n_trials = st.number_input(
-                "n_trials", min_value=1, max_value=500, step=5,
-                value=st.session_state.get("automl_n_trials", 30), key="automl_n_trials",
+                "n_trials",
+                min_value=1,
+                max_value=500,
+                step=5,
+                value=st.session_state.get("automl_n_trials", 30),
+                key="automl_n_trials",
                 help="Количество попыток Optuna",
             )
         with col_timeout:
             use_timeout = st.checkbox(
-                "Таймаут (мин)", value=st.session_state.get("automl_hyperopt_timeout") is not None,
+                "Таймаут (мин)",
+                value=st.session_state.get("automl_hyperopt_timeout") is not None,
                 key="automl_use_timeout",
             )
             if use_timeout:
                 timeout_min = st.number_input(
-                    "минут", min_value=1, max_value=120, step=1,
+                    "минут",
+                    min_value=1,
+                    max_value=120,
+                    step=1,
                     value=max(1, (st.session_state.get("automl_hyperopt_timeout") or 300) // 60),
-                    key="automl_timeout_min", label_visibility="collapsed",
+                    key="automl_timeout_min",
+                    label_visibility="collapsed",
                 )
                 hyperopt_timeout = int(timeout_min) * 60
                 st.session_state["automl_hyperopt_timeout"] = hyperopt_timeout
             else:
                 st.session_state["automl_hyperopt_timeout"] = None
-        st.caption("Optuna остановится при достижении n_trials **или** таймаута (что наступит раньше)")
+        st.caption(
+            "Optuna остановится при достижении n_trials **или** таймаута (что наступит раньше)"
+        )
 
     return {
         "models": selected,
@@ -211,7 +287,16 @@ def _render_config(has_clustering: bool = False) -> dict:
         "use_hyperopt": use_hyperopt,
         "n_trials": int(n_trials),
         "hyperopt_timeout": hyperopt_timeout,
-        "catboost_params": {"iterations": int(cb_iterations), "learning_rate": float(cb_lr), "depth": int(cb_depth)},
+        "catboost_params": {
+            "iterations": int(cb_iterations),
+            "learning_rate": float(cb_lr),
+            "depth": int(cb_depth),
+        },
+        "chronos_params": {
+            "context_length": int(chronos_context_length) if chronos_context_length else None,
+            "cross_learning": bool(chronos_cross_learning),
+            "batch_size": int(chronos_batch_size),
+        },
         "autoarima_approximation": bool(autoarima_approx),
         "feature_params": {
             "use_trend": use_trend,
@@ -233,16 +318,26 @@ def _render_progress(project_id: str, job_id: str, models: list[str]) -> bool:
         return False
 
     done_models = {e["model"] for e in events if e.get("type") == "model_done"}
-    skipped_models = {e["model"] for e in events if e.get("type") in ("model_skipped", "model_timeout")}
+    skipped_models = {
+        e["model"] for e in events if e.get("type") in ("model_skipped", "model_timeout")
+    }
     finished_models = done_models | skipped_models
     current_model = next(
-        (e["model"] for e in reversed(events) if e.get("type") == "model_start" and e["model"] not in finished_models),
+        (
+            e["model"]
+            for e in reversed(events)
+            if e.get("type") == "model_start" and e["model"] not in finished_models
+        ),
         None,
     )
 
     # Последнее progress-сообщение для текущей модели
     last_progress = next(
-        (e for e in reversed(events) if e.get("type") == "model_progress" and e.get("model") == current_model),
+        (
+            e
+            for e in reversed(events)
+            if e.get("type") == "model_progress" and e.get("model") == current_model
+        ),
         None,
     )
 
@@ -254,12 +349,18 @@ def _render_progress(project_id: str, job_id: str, models: list[str]) -> bool:
     for model in models:
         label = _MODEL_LABELS.get(model, model)
         if model in done_models:
-            metric_event = next((e for e in events if e.get("type") == "model_done" and e.get("model") == model), {})
+            metric_event = next(
+                (e for e in events if e.get("type") == "model_done" and e.get("model") == model), {}
+            )
             metric_val = next((v for k, v in metric_event.items() if k.startswith("val_")), "")
             st.markdown(f"✅ {label}" + (f" — val: {metric_val}" if metric_val else ""))
         elif model in skipped_models:
-            timeout = any(e.get("type") == "model_timeout" and e.get("model") == model for e in events)
-            st.markdown(f"{'⏱' if timeout else '⏭'} {label} — {'таймаут' if timeout else 'пропущено'}")
+            timeout = any(
+                e.get("type") == "model_timeout" and e.get("model") == model for e in events
+            )
+            st.markdown(
+                f"{'⏱' if timeout else '⏭'} {label} — {'таймаут' if timeout else 'пропущено'}"
+            )
         elif model == current_model:
             progress_msg = last_progress.get("message", "") if last_progress else ""
             progress_pct_str = last_progress.get("pct") if last_progress else None
@@ -369,12 +470,26 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
     col_best, col_worst = st.columns(2)
     with col_best:
         st.markdown("**Топ-3 (лучший test)**")
-        _render_mini_charts(project_id, top3, val_periods, test_periods, key_prefix="top",
-                            predictions=mini_predictions, selected_models=selected_models)
+        _render_mini_charts(
+            project_id,
+            top3,
+            val_periods,
+            test_periods,
+            key_prefix="top",
+            predictions=mini_predictions,
+            selected_models=selected_models,
+        )
     with col_worst:
         st.markdown("**Антитоп-3 (худший test)**")
-        _render_mini_charts(project_id, bot3, val_periods, test_periods, key_prefix="bot",
-                            predictions=mini_predictions, selected_models=selected_models)
+        _render_mini_charts(
+            project_id,
+            bot3,
+            val_periods,
+            test_periods,
+            key_prefix="bot",
+            predictions=mini_predictions,
+            selected_models=selected_models,
+        )
 
     st.divider()
 
@@ -391,8 +506,9 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
     selected_rows = selection.selection.get("rows", [])
     if selected_rows:
         panel_id = str(panel_df.iloc[selected_rows[0]]["Panel ID"])
-        _render_panel_chart(project_id, panel_id, val_periods, test_periods,
-                            all_model_names, selected_models)
+        _render_panel_chart(
+            project_id, panel_id, val_periods, test_periods, all_model_names, selected_models
+        )
 
     # Feature importance для CatBoost моделей
     fi_models = [mr for mr in sorted_mrs if mr.get("feature_importance")]
@@ -406,7 +522,10 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
                 fi_df = pd.DataFrame(fi, columns=["Признак", "Важность"])
                 top_fi = fi_df.head(20)
                 fig = px.bar(
-                    top_fi, x="Важность", y="Признак", orientation="h",
+                    top_fi,
+                    x="Важность",
+                    y="Признак",
+                    orientation="h",
                     color="Важность",
                     color_continuous_scale="Blues",
                 )
@@ -421,7 +540,6 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
                     showlegend=False,
                 )
                 st.plotly_chart(fig, use_container_width=True)
-
 
 
 def _render_panel_chart(
@@ -449,14 +567,23 @@ def _render_panel_chart(
     if cache_key not in st.session_state and selected_models:
         with st.spinner("Загрузка предсказаний..."):
             try:
-                st.session_state[cache_key] = get_automl_predictions(project_id, [panel_id], all_models)
+                st.session_state[cache_key] = get_automl_predictions(
+                    project_id, [panel_id], all_models
+                )
             except Exception:
                 st.session_state[cache_key] = {}
     predictions = st.session_state.get(cache_key, {})
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=dates, y=values, mode="lines", name="Фактическое",
-                             line=dict(color="#7C6AF7", width=1.5)))
+    fig.add_trace(
+        go.Scatter(
+            x=dates,
+            y=values,
+            mode="lines",
+            name="Фактическое",
+            line=dict(color="#7C6AF7", width=1.5),
+        )
+    )
 
     for model in selected_models:
         model_preds = predictions.get(model, {}).get(panel_id, [])
@@ -464,25 +591,53 @@ def _render_panel_chart(
             pred_dates = [p["date"] for p in model_preds if p["split"] in ("val", "test")]
             pred_vals = [p["y_pred"] for p in model_preds if p["split"] in ("val", "test")]
             if pred_dates:
-                fig.add_trace(go.Scatter(
-                    x=pred_dates, y=pred_vals, mode="lines",
-                    name=_MODEL_LABELS.get(model, model),
-                    line=dict(color=_MODEL_COLORS.get(model, "#aaa"), width=1.5, dash="dot"),
-                ))
+                fig.add_trace(
+                    go.Scatter(
+                        x=pred_dates,
+                        y=pred_vals,
+                        mode="lines",
+                        name=_MODEL_LABELS.get(model, model),
+                        line=dict(color=_MODEL_COLORS.get(model, "#aaa"), width=1.5, dash="dot"),
+                    )
+                )
 
     if train_end > 0:
-        fig.add_vrect(x0=dates[0], x1=dates[train_end] if train_end < n else dates[-1],
-                      fillcolor=_TRAIN_COLOR, line_width=0, annotation_text="train", annotation_position="top left")
+        fig.add_vrect(
+            x0=dates[0],
+            x1=dates[train_end] if train_end < n else dates[-1],
+            fillcolor=_TRAIN_COLOR,
+            line_width=0,
+            annotation_text="train",
+            annotation_position="top left",
+        )
     if 0 < train_end < val_end:
-        fig.add_vrect(x0=dates[train_end], x1=dates[val_end] if val_end < n else dates[-1],
-                      fillcolor=_VAL_COLOR, line_width=0, annotation_text="val", annotation_position="top left")
+        fig.add_vrect(
+            x0=dates[train_end],
+            x1=dates[val_end] if val_end < n else dates[-1],
+            fillcolor=_VAL_COLOR,
+            line_width=0,
+            annotation_text="val",
+            annotation_position="top left",
+        )
     if val_end < n:
-        fig.add_vrect(x0=dates[val_end], x1=dates[-1],
-                      fillcolor=_TEST_COLOR, line_width=0, annotation_text="test", annotation_position="top left")
+        fig.add_vrect(
+            x0=dates[val_end],
+            x1=dates[-1],
+            fillcolor=_TEST_COLOR,
+            line_width=0,
+            annotation_text="test",
+            annotation_position="top left",
+        )
     fig.update_layout(
-        title=f"Панель {panel_id}", height=320, margin=dict(l=0, r=0, t=40, b=0),
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="#FAFAFA",
-        xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor="#333"), showlegend=True,
+        title=f"Панель {panel_id}",
+        height=320,
+        margin=dict(l=0, r=0, t=40, b=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font_color="#FAFAFA",
+        xaxis=dict(showgrid=False),
+        yaxis=dict(showgrid=True, gridcolor="#333"),
+        showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     )
     st.plotly_chart(fig, use_container_width=True, key=f"panel_chart_{panel_id}")
@@ -510,8 +665,15 @@ def _render_mini_charts(
         train_end = n - val_periods - test_periods
         val_end = n - test_periods
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=dates, y=values, mode="lines", name="Фактическое",
-                                 line=dict(color="#7C6AF7", width=1)))
+        fig.add_trace(
+            go.Scatter(
+                x=dates,
+                y=values,
+                mode="lines",
+                name="Фактическое",
+                line=dict(color="#7C6AF7", width=1),
+            )
+        )
 
         if predictions and selected_models:
             for model in selected_models:
@@ -519,26 +681,47 @@ def _render_mini_charts(
                 pred_dates = [p["date"] for p in model_preds if p["split"] in ("val", "test")]
                 pred_vals = [p["y_pred"] for p in model_preds if p["split"] in ("val", "test")]
                 if pred_dates:
-                    fig.add_trace(go.Scatter(
-                        x=pred_dates, y=pred_vals, mode="lines",
-                        name=_MODEL_LABELS.get(model, model),
-                        line=dict(color=_MODEL_COLORS.get(model, "#4CAF50"), width=1, dash="dot"),
-                    ))
+                    fig.add_trace(
+                        go.Scatter(
+                            x=pred_dates,
+                            y=pred_vals,
+                            mode="lines",
+                            name=_MODEL_LABELS.get(model, model),
+                            line=dict(
+                                color=_MODEL_COLORS.get(model, "#4CAF50"), width=1, dash="dot"
+                            ),
+                        )
+                    )
 
         if train_end > 0:
-            fig.add_vrect(x0=dates[0], x1=dates[train_end] if train_end < n else dates[-1],
-                          fillcolor=_TRAIN_COLOR, line_width=0)
+            fig.add_vrect(
+                x0=dates[0],
+                x1=dates[train_end] if train_end < n else dates[-1],
+                fillcolor=_TRAIN_COLOR,
+                line_width=0,
+            )
         if 0 < train_end < val_end:
-            fig.add_vrect(x0=dates[train_end], x1=dates[val_end] if val_end < n else dates[-1],
-                          fillcolor=_VAL_COLOR, line_width=0)
+            fig.add_vrect(
+                x0=dates[train_end],
+                x1=dates[val_end] if val_end < n else dates[-1],
+                fillcolor=_VAL_COLOR,
+                line_width=0,
+            )
         if val_end < n:
             fig.add_vrect(x0=dates[val_end], x1=dates[-1], fillcolor=_TEST_COLOR, line_width=0)
         fig.update_layout(
-            title=f"ID: {panel_id}", height=200, margin=dict(l=0, r=0, t=30, b=0),
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="#FAFAFA",
-            xaxis=dict(showgrid=False, showticklabels=False), yaxis=dict(showgrid=False),
+            title=f"ID: {panel_id}",
+            height=200,
+            margin=dict(l=0, r=0, t=30, b=0),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font_color="#FAFAFA",
+            xaxis=dict(showgrid=False, showticklabels=False),
+            yaxis=dict(showgrid=False),
             showlegend=bool(selected_models),
-            legend=dict(orientation="h", yanchor="top", y=-0.05, xanchor="left", x=0, font=dict(size=10)),
+            legend=dict(
+                orientation="h", yanchor="top", y=-0.05, xanchor="left", x=0, font=dict(size=10)
+            ),
         )
         st.plotly_chart(fig, use_container_width=True, key=f"mini_{key_prefix}_{panel_id}")
 
@@ -559,7 +742,11 @@ def render() -> None:
 
     # Если уже есть результат automl — показываем результаты (если не запрошен перезапуск)
     rerun_key = f"automl_rerun_{project_id}"
-    if automl_result and not st.session_state.get("automl_job_id") and not st.session_state.get(rerun_key):
+    if (
+        automl_result
+        and not st.session_state.get("automl_job_id")
+        and not st.session_state.get(rerun_key)
+    ):
         _render_results(project, automl_result, split_result)
         st.divider()
         if st.button("🔄 Перезапустить моделирование", use_container_width=False):
@@ -584,7 +771,10 @@ def render() -> None:
                     for s in (job_data.get("steps") or [])
                     if s.get("name", "").startswith("train_")
                 ]
-                models = list(dict.fromkeys(started + step_models)) or ["seasonal_naive", "catboost"]
+                models = list(dict.fromkeys(started + step_models)) or [
+                    "seasonal_naive",
+                    "catboost",
+                ]
                 st.session_state["automl_models"] = models
             except Exception:
                 models = ["seasonal_naive", "catboost"]
@@ -619,7 +809,9 @@ def render() -> None:
         col_f1.metric("Частота данных", f"{freq_lbl} ({effective_freq or prep_freq})")
         col_f2.metric("Сезонный период", effective_season)
         if freq_override and freq_override != prep_freq:
-            st.caption(f"Автоопределено: {_FREQ_LABELS.get(prep_freq, prep_freq)} ({prep_freq}) — изменить на экране «Качество данных»")
+            st.caption(
+                f"Автоопределено: {_FREQ_LABELS.get(prep_freq, prep_freq)} ({prep_freq}) — изменить на экране «Качество данных»"
+            )
         else:
             st.caption("Изменить на экране «Качество данных»")
 
@@ -630,7 +822,9 @@ def render() -> None:
 
     col_run, col_dl = st.columns([4, 1])
     yaml_bytes = yaml.dump(cfg, allow_unicode=True, default_flow_style=False).encode()
-    col_dl.download_button("Сохранить конфиг", yaml_bytes, "automl_config.yaml", "text/yaml", use_container_width=True)
+    col_dl.download_button(
+        "Сохранить конфиг", yaml_bytes, "automl_config.yaml", "text/yaml", use_container_width=True
+    )
 
     if col_run.button("▶ Запустить AutoML", type="primary", use_container_width=True):
         with st.spinner("Запускаю..."):
@@ -646,6 +840,7 @@ def render() -> None:
                     catboost_params=cfg["catboost_params"],
                     autoarima_approximation=cfg["autoarima_approximation"],
                     feature_params=cfg["feature_params"],
+                    chronos_params=cfg["chronos_params"],
                 )
             except Exception as e:
                 st.error(f"Ошибка запуска: {e}")

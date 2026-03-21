@@ -55,6 +55,7 @@ def _load_model_predictions(key: str, panel_ids: set[str]) -> dict[str, list[dic
 
 async def _get_redis():
     import redis.asyncio as aioredis
+
     return aioredis.Redis(
         host=_redis_host, port=_redis_port, password=_redis_password, decode_responses=True
     )
@@ -100,6 +101,14 @@ class FeatureParams(BaseModel):
     use_mstl_seasonal: bool = False
 
 
+class ChronosRunParams(BaseModel):
+    """Параметры Chronos-2 для запуска AutoML."""
+
+    context_length: int | None = None
+    cross_learning: bool = False
+    batch_size: int = 256
+
+
 class AutoMLRunConfig(BaseModel):
     """Конфигурация запуска AutoML."""
 
@@ -110,6 +119,7 @@ class AutoMLRunConfig(BaseModel):
     hyperopt_timeout: int | None = None  # таймаут Optuna в секундах (None = без ограничения)
     freq: str | None = None  # None = автоопределение из данных
     catboost_params: CatBoostRunParams = CatBoostRunParams()
+    chronos_params: ChronosRunParams = ChronosRunParams()
     autoarima_approximation: bool = True
     feature_params: FeatureParams = FeatureParams()
 
@@ -132,8 +142,11 @@ async def run_automl(
 
     # Ищем последний preprocessing job (должен содержать split в результате)
     prep_job = next(
-        (j for j in sorted(project.jobs, key=lambda j: j.created_at, reverse=True)
-         if j.status == "done" and j.result and "split" in j.result),
+        (
+            j
+            for j in sorted(project.jobs, key=lambda j: j.created_at, reverse=True)
+            if j.status == "done" and j.result and "split" in j.result
+        ),
         None,
     )
     if prep_job is None:
@@ -160,6 +173,7 @@ async def run_automl(
         config.catboost_params.model_dump(),
         config.autoarima_approximation,
         config.feature_params.model_dump(),
+        config.chronos_params.model_dump(),
     )
 
     return _to_job_schema(job)
@@ -185,8 +199,11 @@ async def get_automl_predictions(
         raise HTTPException(status_code=404, detail="Проект не найден")
 
     automl_job = next(
-        (j for j in sorted(project.jobs, key=lambda j: j.created_at, reverse=True)
-         if j.status == "done" and j.result and "automl" in j.result),
+        (
+            j
+            for j in sorted(project.jobs, key=lambda j: j.created_at, reverse=True)
+            if j.status == "done" and j.result and "automl" in j.result
+        ),
         None,
     )
     if automl_job is None:
