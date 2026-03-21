@@ -116,7 +116,12 @@ def _train_ts2vec_encoder(
             best_state = deepcopy(m._net.state_dict())
         if progress_fn:
             pct = min(80.0, 10.0 + 70.0 * m.n_epochs / params.n_epochs)
-            progress_fn(f"TS2Vec: epoch {m.n_epochs}/{params.n_epochs}, loss={epoch_loss:.4f}", pct)
+            msg = (
+                f"TS2Vec: epoch {m.n_epochs}/{params.n_epochs}, loss={epoch_loss:.4f}"
+                f"||loss={epoch_loss:.6f}||best_loss={best_loss:.6f}"
+                f"||epoch={m.n_epochs}||total_epochs={params.n_epochs}"
+            )
+            progress_fn(msg, pct)
         if cancel_fn and cancel_fn():
             raise ModelCancelledError("ts2vec")
 
@@ -178,10 +183,13 @@ class TS2VecForecastModel(BaseForecastModel):
         if progress_fn:
             progress_fn("TS2Vec: кодирование панелей...", 82.0)
 
-        full_df = pd.concat(
-            [s for _, s in splits.splits],
-            ignore_index=True,
-        )
+        _SPLIT_COL = "_split"
+        parts = [splits.train.copy().assign(**{_SPLIT_COL: "train"})]
+        if splits.val is not None:
+            parts.append(splits.val.copy().assign(**{_SPLIT_COL: "val"}))
+        parts.append(splits.test.copy().assign(**{_SPLIT_COL: "test"}))
+        full_df = pd.concat(parts, ignore_index=True)
+
         panel_embeddings = _encode_panels(ts2vec_model, full_df, panel_col, target)
 
         if progress_fn:
@@ -195,11 +203,12 @@ class TS2VecForecastModel(BaseForecastModel):
         )
         full_features = build_ts_features(full_with_emb, settings, disable_tqdm=True)
 
-        train_len = len(splits.train)
-        val_len = len(splits.val) if splits.val is not None else 0
-        train_feat = full_features.iloc[:train_len]
-        val_feat = full_features.iloc[train_len : train_len + val_len] if val_len > 0 else None
-        test_feat = full_features.iloc[train_len + val_len :]
+        train_feat = full_features[full_features[_SPLIT_COL] == "train"].drop(columns=[_SPLIT_COL])
+        val_feat = None
+        if splits.val is not None:
+            v = full_features[full_features[_SPLIT_COL] == "val"].drop(columns=[_SPLIT_COL])
+            val_feat = v if len(v) > 0 else None
+        test_feat = full_features[full_features[_SPLIT_COL] == "test"].drop(columns=[_SPLIT_COL])
 
         feature_cols = [c for c in train_feat.columns if c not in {panel_col, date_col, target}]
         train_feat_clean = train_feat.dropna(subset=feature_cols)

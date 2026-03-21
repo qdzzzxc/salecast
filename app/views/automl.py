@@ -43,6 +43,7 @@ _MODEL_LABELS = {
     ModelType.mstl: "MSTL",
     ModelType.chronos: "Chronos-2",
     ModelType.ts2vec: "TS2Vec + CatBoost",
+    ModelType.ts2vec_clustered: "TS2Vec clustered",
 }
 _MODEL_COLORS = {
     ModelType.seasonal_naive: "#4CAF50",
@@ -55,13 +56,15 @@ _MODEL_COLORS = {
     ModelType.mstl: "#9B59B6",
     ModelType.chronos: "#1ABC9C",
     ModelType.ts2vec: "#E67E22",
+    ModelType.ts2vec_clustered: "#D35400",
 }
-_GPU_MODELS = {ModelType.chronos, ModelType.ts2vec}
+_GPU_MODELS = {ModelType.chronos, ModelType.ts2vec, ModelType.ts2vec_clustered}
 _MODEL_CAPTIONS: dict[ModelType, str] = {
     ModelType.catboost_per_panel: "Медленно",
     ModelType.mstl: "Декомпозиция",
     ModelType.chronos: "Zero-shot, GPU",
     ModelType.ts2vec: "Encoder + CatBoost, GPU",
+    ModelType.ts2vec_clustered: "Encoder + CatBoost на кластер, GPU",
 }
 _METRICS = [m.value for m in MetricType if m != MetricType.r2]
 
@@ -102,14 +105,17 @@ def _render_config(has_clustering: bool = False) -> dict:
     defaults = {"seasonal_naive", "catboost"}
     for i, model in enumerate(_ALL_MODELS):
         with cols[i]:
-            disabled = model == ModelType.catboost_clustered and not has_clustering
+            disabled = model in (
+                ModelType.catboost_clustered,
+                ModelType.ts2vec_clustered,
+            ) and not has_clustering
             checked = st.checkbox(
                 _MODEL_LABELS[model],
                 value=model in defaults and not disabled,
                 key=f"model_{model}",
                 disabled=disabled,
             )
-            if model == ModelType.catboost_clustered:
+            if model in (ModelType.catboost_clustered, ModelType.ts2vec_clustered):
                 st.caption("Нет кластеров" if disabled else "Из кластеризации")
             elif model in _MODEL_CAPTIONS:
                 st.caption(_MODEL_CAPTIONS[model])
@@ -346,6 +352,44 @@ def _render_config(has_clustering: bool = False) -> dict:
     }
 
 
+def _render_loss_chart(
+    loss_history: list[tuple[int, float]], best_loss: float | None = None
+) -> None:
+    """Мини-график loss по эпохам для моделей с историей обучения."""
+    epochs = [e for e, _ in loss_history]
+    losses = [l for _, l in loss_history]  # noqa: E741
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=epochs,
+            y=losses,
+            mode="lines",
+            name="Loss",
+            line=dict(color="#E67E22", width=1.5),
+        )
+    )
+    if best_loss is not None:
+        fig.add_hline(
+            y=best_loss,
+            line_dash="dash",
+            line_color="#2ECC71",
+            annotation_text=f"best: {best_loss:.4f}",
+            annotation_position="top right",
+            annotation_font_color="#2ECC71",
+        )
+    fig.update_layout(
+        height=150,
+        margin=dict(l=0, r=0, t=10, b=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font_color="#FAFAFA",
+        xaxis=dict(title="Epoch", showgrid=False),
+        yaxis=dict(title="Loss", showgrid=True, gridcolor="#333"),
+        showlegend=False,
+    )
+    st.plotly_chart(fig, use_container_width=True, key="ts2vec_loss_chart")
+
+
 def _render_progress(project_id: str, job_id: str, models: list[str]) -> bool:
     """Отображает прогресс AutoML. Возвращает True если завершено."""
     try:
@@ -411,6 +455,20 @@ def _render_progress(project_id: str, job_id: str, models: list[str]) -> bool:
                     st.progress(int(progress_pct) / 100, text=f"⏳ {label}{suffix}")
                 else:
                     st.markdown(f"⏳ {label}{suffix}")
+
+                # График loss для моделей с историей обучения (TS2Vec)
+                loss_history = [
+                    (int(e["epoch"]), float(e["loss"]))
+                    for e in events
+                    if e.get("type") == "model_progress"
+                    and e.get("model") == model
+                    and e.get("loss")
+                    and e.get("epoch")
+                ]
+                if len(loss_history) >= 2:
+                    best = last_progress.get("best_loss") if last_progress else None
+                    _render_loss_chart(loss_history, float(best) if best else None)
+
             with col_skip:
                 if st.button("Пропустить", key=f"skip_{model}", use_container_width=True):
                     try:
