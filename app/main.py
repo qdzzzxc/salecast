@@ -4,7 +4,7 @@ import streamlit as st
 
 from app.api_client import create_project, delete_project, list_projects
 from app.state import get_current_project, init_state, set_page, set_project
-from app.views import automl, forecast, quality, upload
+from app.views import automl, clustering, forecast, quality, upload
 
 _EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 _DEMO_PROJECTS = [
@@ -56,6 +56,8 @@ def _project_icon(project: dict) -> str:
         return "✅ 📈"
     if "automl" in result:
         return "✅ ⚙"
+    if "clustering" in result:
+        return "✅ 🔵"
     if "split" in result:
         return "✅ 🗂"
     return "✅"
@@ -100,6 +102,8 @@ def _render_sidebar() -> None:
                                 set_page("forecast")
                             elif "automl" in result:
                                 set_page("automl")
+                            elif "clustering" in result:
+                                set_page("clustering")
                             else:
                                 set_page("quality")
                         elif job.get("status") in ("running", "pending"):
@@ -153,6 +157,7 @@ def _render_sidebar() -> None:
 
 _STEP_LABELS = {
     "quality": "Качество данных",
+    "clustering": "Кластеризация",
     "automl": "Моделирование",
     "forecast": "Прогноз",
 }
@@ -160,7 +165,10 @@ _STEP_LABELS = {
 
 def _render_steps(page: str, result: dict) -> None:
     """Отображает переключатель шагов пайплайна."""
-    options = ["quality", "automl"]
+    options = ["quality"]
+    if result.get("split"):
+        options.append("clustering")
+    options.append("automl")
     if result.get("automl"):
         options.append("forecast")
     selected = st.segmented_control(
@@ -194,6 +202,8 @@ def _render_page() -> None:
 
     if page == "quality":
         quality.render()
+    elif page == "clustering":
+        clustering.render()
     elif page == "automl":
         automl.render()
     elif page == "forecast":

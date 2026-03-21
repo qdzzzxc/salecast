@@ -303,3 +303,37 @@ def get_automl_predictions(
 ) -> dict[str, dict[str, list[dict]]]:
     """Возвращает предсказания моделей для набора панелей (синхронная обёртка)."""
     return _run(_get_automl_predictions(project_id, panel_ids, models))
+
+
+async def _run_clustering(
+    project_id: str,
+    n_clusters: int = 5,
+    method: str = "kmeans",
+) -> dict[str, Any]:
+    """Запускает кластеризацию через API."""
+    payload = {"n_clusters": n_clusters, "method": method}
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{_API_URL}/projects/{project_id}/run_clustering",
+            json=payload,
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def run_clustering(project_id: str, n_clusters: int = 5, method: str = "kmeans") -> dict[str, Any]:
+    """Запускает кластеризацию (синхронная обёртка)."""
+    return _run(_run_clustering(project_id, n_clusters, method))
+
+
+async def _get_cluster_data(project_id: str) -> dict[str, Any]:
+    """Загружает результаты кластеризации через API."""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{_API_URL}/projects/{project_id}/cluster_data") as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_cluster_data(project_id: str) -> dict[str, Any]:
+    """Загружает результаты кластеризации (синхронная обёртка)."""
+    return _run(_get_cluster_data(project_id))
