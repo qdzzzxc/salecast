@@ -10,8 +10,10 @@ from sqlalchemy.orm import Session
 from celery_app import celery
 from src.automl.models import CatBoostForecastModel, CatBoostPerPanelForecastModel, SeasonalNaiveForecastModel, StatsForecastModel
 from src.automl.models.catboost_clustered_model import CatBoostClusteredForecastModel
+from src.automl.models.chronos_model import ChronosForecastModel
 from src.automl.ts_utils import get_downstream_lags, infer_ts_config
 from src.configs.settings import ColumnConfig, Settings
+from src.custom_types import ModelType
 
 logger = logging.getLogger(__name__)
 
@@ -78,16 +80,19 @@ def _add_step(session: Session, job, name: str, message: str) -> None:
 
 def _build_model(model_name: str, cluster_labels: dict[str, int] | None = None):
     """Создаёт экземпляр модели по имени."""
-    if model_name == "seasonal_naive":
+    mt = ModelType(model_name)
+    if mt == ModelType.seasonal_naive:
         return SeasonalNaiveForecastModel()
-    if model_name == "catboost":
+    if mt == ModelType.catboost:
         return CatBoostForecastModel()
-    if model_name == "catboost_per_panel":
+    if mt == ModelType.catboost_per_panel:
         return CatBoostPerPanelForecastModel()
-    if model_name == "catboost_clustered":
+    if mt == ModelType.catboost_clustered:
         return CatBoostClusteredForecastModel(cluster_labels=cluster_labels or {})
-    if model_name in ("autoarima", "autoets", "autotheta", "mstl"):
-        return StatsForecastModel(model_type=model_name)
+    if mt in (ModelType.autoarima, ModelType.autoets, ModelType.autotheta, ModelType.mstl):
+        return StatsForecastModel(model_type=mt)
+    if mt == ModelType.chronos:
+        return ChronosForecastModel()
     raise ValueError(f"Неизвестная модель: {model_name}")
 
 
