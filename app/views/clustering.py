@@ -238,7 +238,7 @@ def render() -> None:
     st.title("Кластеризация")
     st.caption(
         "Опциональный шаг — группирует панели по паттерну TS."
-        " Открывает модель CatBoost clustered в AutoML."
+        " Открывает кластерные модели (CatBoost clustered, TS2Vec clustered) в AutoML."
     )
 
     rerun_key = f"clustering_rerun_{project_id}"

@@ -19,6 +19,7 @@ from src.automl.models import (
 )
 from src.automl.models.catboost_clustered_model import CatBoostClusteredForecastModel
 from src.automl.models.chronos_model import ChronosForecastModel, ChronosParameters
+from src.automl.models.ts2vec_clustered_model import TS2VecClusteredForecastModel
 from src.automl.models.ts2vec_model import TS2VecForecastModel, TS2VecParameters
 from src.automl.selector import _get_metric_value
 from src.automl.ts_utils import get_downstream_lags, infer_ts_config, ts_config_from_freq
@@ -151,6 +152,11 @@ def _build_model(
         return ChronosForecastModel(params=ChronosParameters(**(chronos_params or {})))
     if model_type == ModelType.ts2vec:
         return TS2VecForecastModel(params=TS2VecParameters(**(ts2vec_params or {})))
+    if model_type == ModelType.ts2vec_clustered:
+        return TS2VecClusteredForecastModel(
+            cluster_labels=cluster_labels or {},
+            params=TS2VecParameters(**(ts2vec_params or {})),
+        )
     return StatsForecastModel(model_type=model_type)
 
 
@@ -263,7 +269,8 @@ def run_automl(
 
             # Загружаем cluster_labels если нужна clustered-модель
             cluster_labels: dict[str, int] | None = None
-            if "catboost_clustered" in models:
+            _clustered_models = {"catboost_clustered", "ts2vec_clustered"}
+            if _clustered_models & set(models):
                 clustering_info = prep_job.result.get("clustering")
                 if clustering_info:
                     labels_df = _load_csv(clustering_info["labels_key"])
@@ -273,9 +280,9 @@ def run_automl(
                     logger.info("Загружены cluster_labels: %d панелей", len(cluster_labels))
                 else:
                     logger.warning(
-                        "catboost_clustered запрошен, но результатов кластеризации нет — пропускаем"
+                        "clustered-модель запрошена, но результатов кластеризации нет"
                     )
-                    models = [m for m in models if m != "catboost_clustered"]
+                    models = [m for m in models if m not in _clustered_models]
 
             if use_hyperopt and "catboost" in models:
                 timeout_label = f", timeout {hyperopt_timeout}s" if hyperopt_timeout else ""
@@ -331,9 +338,25 @@ def run_automl(
                 def _progress_fn(
                     message: str, pct: float | None = None, _mt: str = model_type
                 ) -> None:
-                    payload: dict = {"type": "model_progress", "model": _mt, "message": message}
+                    # Парсим расширенный формат: "text||key=val||key2=val2"
+                    display_msg = message
+                    extra: dict[str, str] = {}
+                    if "||" in message:
+                        parts = message.split("||")
+                        display_msg = parts[0]
+                        for part in parts[1:]:
+                            if "=" in part:
+                                k, v = part.split("=", 1)
+                                extra[k] = v
+
+                    payload: dict = {
+                        "type": "model_progress",
+                        "model": _mt,
+                        "message": display_msg,
+                    }
                     if pct is not None:
                         payload["pct"] = f"{pct:.1f}"
+                    payload.update(extra)
                     redis_client.xadd(stream_key, payload)
 
                 def _cancel_fn(_key: str = cancel_key) -> bool:

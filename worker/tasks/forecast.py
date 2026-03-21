@@ -16,6 +16,7 @@ from src.automl.models import (
 )
 from src.automl.models.catboost_clustered_model import CatBoostClusteredForecastModel
 from src.automl.models.chronos_model import ChronosForecastModel, ChronosParameters
+from src.automl.models.ts2vec_clustered_model import TS2VecClusteredForecastModel
 from src.automl.models.ts2vec_model import TS2VecForecastModel, TS2VecParameters
 from src.automl.ts_utils import get_downstream_lags, infer_ts_config
 from src.configs.settings import ColumnConfig, Settings
@@ -115,6 +116,11 @@ def _build_model(
         return ChronosForecastModel(params=ChronosParameters(**(chronos_params or {})))
     if mt == ModelType.ts2vec:
         return TS2VecForecastModel(params=TS2VecParameters(**(ts2vec_params or {})))
+    if mt == ModelType.ts2vec_clustered:
+        return TS2VecClusteredForecastModel(
+            cluster_labels=cluster_labels or {},
+            params=TS2VecParameters(**(ts2vec_params or {})),
+        )
     raise ValueError(f"Неизвестная модель: {model_name}")
 
 
@@ -191,7 +197,7 @@ def run_forecast(
 
             # Загружаем cluster_labels если нужна clustered-модель
             cluster_labels: dict[str, int] | None = None
-            if model_name == "catboost_clustered":
+            if model_name in ("catboost_clustered", "ts2vec_clustered"):
                 clustering_info = automl_job.result.get("clustering")
                 if clustering_info:
                     labels_df = _load_csv(clustering_info["labels_key"])
