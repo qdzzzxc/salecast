@@ -4,6 +4,7 @@ import pandas as pd
 
 from src.automl.base import BaseForecastModel
 from src.automl.config import AutoMLConfig
+from src.automl.models.catboost_clustered_model import CatBoostClusteredForecastModel
 from src.automl.models.catboost_model import CatBoostForecastModel, CatBoostPerPanelForecastModel
 from src.automl.models.seasonal_naive_model import SeasonalNaiveForecastModel
 from src.automl.models.statsforecast_model import StatsForecastModel
@@ -84,6 +85,7 @@ class ModelSelector:
 def _build_model(
     model_type: ModelType,
     catboost_params: CatBoostParameters | None = None,
+    cluster_labels: dict[str, int] | None = None,
 ) -> BaseForecastModel:
     """Создаёт модель по типу."""
     if model_type == "seasonal_naive":
@@ -92,6 +94,10 @@ def _build_model(
         return CatBoostForecastModel(params=catboost_params)
     if model_type == "catboost_per_panel":
         return CatBoostPerPanelForecastModel(params=catboost_params)
+    if model_type == "catboost_clustered":
+        if not cluster_labels:
+            raise ValueError("catboost_clustered требует cluster_labels")
+        return CatBoostClusteredForecastModel(cluster_labels=cluster_labels, params=catboost_params)
     if model_type in ("autoarima", "autoets", "autotheta"):
         return StatsForecastModel(model_type=model_type)
     raise ValueError(f"Неизвестный тип модели: {model_type}")

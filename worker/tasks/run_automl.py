@@ -12,6 +12,7 @@ from celery_app import celery
 from src.automl.base import ModelCancelledError
 from src.automl.hyperopt import tune_catboost
 from src.automl.models import CatBoostForecastModel, CatBoostPerPanelForecastModel, SeasonalNaiveForecastModel, StatsForecastModel
+from src.automl.models.catboost_clustered_model import CatBoostClusteredForecastModel
 from src.automl.selector import _get_metric_value
 from src.automl.ts_utils import get_downstream_lags, infer_ts_config, ts_config_from_freq
 from src.configs.settings import ColumnConfig, Settings
@@ -110,6 +111,7 @@ def _build_model(
     model_type: ModelType,
     catboost_params: dict | None = None,
     autoarima_approximation: bool = True,
+    cluster_labels: dict[str, int] | None = None,
 ):
     """Создаёт модель заданного типа с переданными параметрами."""
     if model_type == "seasonal_naive":
@@ -120,6 +122,9 @@ def _build_model(
     if model_type == "catboost_per_panel":
         params = CatBoostParameters(**(catboost_params or {}))
         return CatBoostPerPanelForecastModel(params=params)
+    if model_type == "catboost_clustered":
+        params = CatBoostParameters(**(catboost_params or {}))
+        return CatBoostClusteredForecastModel(cluster_labels=cluster_labels or {}, params=params)
     if model_type == "autoarima":
         return StatsForecastModel(model_type=model_type, approximation=autoarima_approximation)
     return StatsForecastModel(model_type=model_type)
@@ -227,6 +232,18 @@ def run_automl(
                 }
             )
 
+            # Загружаем cluster_labels если нужна clustered-модель
+            cluster_labels: dict[str, int] | None = None
+            if "catboost_clustered" in models:
+                clustering_info = prep_job.result.get("clustering")
+                if clustering_info:
+                    labels_df = _load_csv(clustering_info["labels_key"])
+                    cluster_labels = dict(zip(labels_df.iloc[:, 0].astype(str), labels_df["cluster_id"].astype(int)))
+                    logger.info("Загружены cluster_labels: %d панелей", len(cluster_labels))
+                else:
+                    logger.warning("catboost_clustered запрошен, но результатов кластеризации нет — пропускаем")
+                    models = [m for m in models if m != "catboost_clustered"]
+
             if use_hyperopt and "catboost" in models:
                 timeout_label = f", timeout {hyperopt_timeout}s" if hyperopt_timeout else ""
                 _add_step(session, job, "hyperopt", f"Hyperopt CatBoost ({n_trials} trials{timeout_label})")
@@ -250,7 +267,7 @@ def run_automl(
                     "total": str(len(models)),
                 })
 
-                model = _build_model(model_type, catboost_params, autoarima_approximation)
+                model = _build_model(model_type, catboost_params, autoarima_approximation, cluster_labels)
 
                 cancel_key = f"cancel:automl:{job_id}:{model_type}"
 

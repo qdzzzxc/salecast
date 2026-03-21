@@ -12,7 +12,7 @@ AggMethod: TypeAlias = Literal["sum", "mean", "first", "last", "min", "max"] | C
 ClipBounds: TypeAlias = dict[str, dict[int | str, tuple[float, float]]]
 PanelScalers: TypeAlias = dict[str, dict[int, StandardScaler]]
 MetricType: TypeAlias = Literal["mape", "rmse", "mae", "r2"]
-ModelType: TypeAlias = Literal["seasonal_naive", "catboost", "catboost_per_panel", "autoarima", "autoets", "autotheta"]
+ModelType: TypeAlias = Literal["seasonal_naive", "catboost", "catboost_per_panel", "catboost_clustered", "autoarima", "autoets", "autotheta"]
 QualityStatus: TypeAlias = Literal["green", "yellow", "red"]
 
 T = TypeVar("T")

@@ -15,7 +15,7 @@ from app.api_client import (
 )
 from app.state import get_current_project
 
-_ALL_MODELS = ["seasonal_naive", "catboost", "catboost_per_panel", "autoarima", "autoets", "autotheta"]
+_ALL_MODELS = ["seasonal_naive", "catboost", "catboost_per_panel", "catboost_clustered", "autoarima", "autoets", "autotheta"]
 
 _FREQ_LABELS: dict[str, str] = {
     "D": "Дневная", "B": "Рабочие дни",
@@ -29,6 +29,7 @@ _MODEL_LABELS = {
     "seasonal_naive": "Seasonal Naive",
     "catboost": "CatBoost",
     "catboost_per_panel": "CatBoost per-panel",
+    "catboost_clustered": "CatBoost clustered",
     "autoarima": "AutoARIMA",
     "autoets": "AutoETS",
     "autotheta": "AutoTheta",
@@ -37,6 +38,7 @@ _MODEL_COLORS = {
     "seasonal_naive": "#4CAF50",
     "catboost": "#FF6B6B",
     "catboost_per_panel": "#FF9999",
+    "catboost_clustered": "#FF6ED8",
     "autoarima": "#FFB347",
     "autoets": "#87CEEB",
     "autotheta": "#F7C948",
@@ -64,7 +66,7 @@ def _load_yaml_config(uploaded) -> None:
     st.session_state["autoarima_approx"] = cfg.get("autoarima_approximation", True)
 
 
-def _render_config() -> dict:
+def _render_config(has_clustering: bool = False) -> dict:
     """Конфигурация AutoML. Возвращает словарь параметров для API."""
     with st.popover("Загрузить конфиг (YAML)"):
         uploaded = st.file_uploader("YAML файл", type=["yaml", "yml"], key="config_upload", label_visibility="collapsed")
@@ -78,10 +80,18 @@ def _render_config() -> dict:
     defaults = {"seasonal_naive", "catboost"}
     for i, model in enumerate(_ALL_MODELS):
         with cols[i]:
-            checked = st.checkbox(_MODEL_LABELS[model], value=model in defaults, key=f"model_{model}")
+            disabled = model == "catboost_clustered" and not has_clustering
+            checked = st.checkbox(
+                _MODEL_LABELS[model],
+                value=model in defaults and not disabled,
+                key=f"model_{model}",
+                disabled=disabled,
+            )
             if model == "catboost_per_panel":
                 st.caption("Медленно")
-            if checked:
+            elif model == "catboost_clustered":
+                st.caption("Нет кластеров" if disabled else "Из кластеризации")
+            if checked and not disabled:
                 selected.append(model)
 
     cb_iterations = 1000
@@ -91,7 +101,7 @@ def _render_config() -> dict:
     trend_window = 6
     use_cdf = False
     cdf_decay = 0.9
-    if "catboost" in selected or "catboost_per_panel" in selected:
+    if any(m in selected for m in ("catboost", "catboost_per_panel", "catboost_clustered")):
         with st.expander("Настройки CatBoost"):
             cb_iterations = st.number_input(
                 "iterations", min_value=50, max_value=5000, step=50,
@@ -547,7 +557,8 @@ def render() -> None:
         return
 
     # Конфигурация и кнопка запуска
-    cfg = _render_config()
+    has_clustering = bool(result.get("clustering"))
+    cfg = _render_config(has_clustering=has_clustering)
 
     # Частота — из override на экране качества или из preprocessing result
     ts_from_prep = result.get("ts") or {}

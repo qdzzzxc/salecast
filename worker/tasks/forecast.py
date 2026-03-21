@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from celery_app import celery
 from src.automl.models import CatBoostForecastModel, CatBoostPerPanelForecastModel, SeasonalNaiveForecastModel, StatsForecastModel
+from src.automl.models.catboost_clustered_model import CatBoostClusteredForecastModel
 from src.automl.ts_utils import get_downstream_lags, infer_ts_config
 from src.configs.settings import ColumnConfig, Settings
 
@@ -75,7 +76,7 @@ def _add_step(session: Session, job, name: str, message: str) -> None:
     job.steps = steps
 
 
-def _build_model(model_name: str):
+def _build_model(model_name: str, cluster_labels: dict[str, int] | None = None):
     """Создаёт экземпляр модели по имени."""
     if model_name == "seasonal_naive":
         return SeasonalNaiveForecastModel()
@@ -83,6 +84,8 @@ def _build_model(model_name: str):
         return CatBoostForecastModel()
     if model_name == "catboost_per_panel":
         return CatBoostPerPanelForecastModel()
+    if model_name == "catboost_clustered":
+        return CatBoostClusteredForecastModel(cluster_labels=cluster_labels or {})
     if model_name in ("autoarima", "autoets", "autotheta"):
         return StatsForecastModel(model_type=model_name)
     raise ValueError(f"Неизвестная модель: {model_name}")
@@ -152,10 +155,18 @@ def run_forecast(
                 }
             )
 
+            # Загружаем cluster_labels если нужна clustered-модель
+            cluster_labels: dict[str, int] | None = None
+            if model_name == "catboost_clustered":
+                clustering_info = automl_job.result.get("clustering")
+                if clustering_info:
+                    labels_df = _load_csv(clustering_info["labels_key"])
+                    cluster_labels = dict(zip(labels_df.iloc[:, 0].astype(str), labels_df["cluster_id"].astype(int)))
+
             _publish({"type": "step_start", "step": "training"})
             _add_step(session, job, "forecasting", f"Прогноз {model_name} на {horizon} точек")
 
-            model = _build_model(model_name)
+            model = _build_model(model_name, cluster_labels)
             forecast_df = model.forecast_future(
                 full_df=full_df,
                 horizon=horizon,
