@@ -13,12 +13,23 @@ from src.evaluation import evaluate_multiple_splits, log_evaluation_results
 
 logger = logging.getLogger(__name__)
 
-StatsForecastModelType = Literal["autoarima", "autoets", "autotheta"]
+StatsForecastModelType = Literal["autoarima", "autoets", "autotheta", "mstl"]
 
 _MODEL_COL_MAP = {
     "autoarima": "AutoARIMA",
     "autoets": "AutoETS",
     "autotheta": "AutoTheta",
+    "mstl": "MSTL",
+}
+
+_FREQ_SEASON_LENGTHS: dict[str, list[int]] = {
+    "D": [7, 365],
+    "W": [52],
+    "MS": [12],
+    "ME": [12],
+    "M": [12],
+    "QS": [4],
+    "Q": [4],
 }
 
 
@@ -26,9 +37,10 @@ def _make_sf_model(
     model_type: StatsForecastModelType,
     season_length: int = 12,
     approximation: bool = True,
+    freq: str = "MS",
 ):
     """Создаёт экземпляр statsforecast модели по типу."""
-    from statsforecast.models import AutoARIMA, AutoETS, AutoTheta
+    from statsforecast.models import MSTL, AutoARIMA, AutoETS, AutoTheta
 
     if model_type == "autoarima":
         return AutoARIMA(
@@ -43,6 +55,9 @@ def _make_sf_model(
         return AutoETS(season_length=season_length)
     if model_type == "autotheta":
         return AutoTheta(season_length=season_length)
+    if model_type == "mstl":
+        season_lengths = _FREQ_SEASON_LENGTHS.get(freq, [season_length])
+        return MSTL(season_length=season_lengths, trend_forecaster=AutoETS(model="ZZN"))
     raise ValueError(f"Неизвестный тип модели: {model_type}")
 
 
@@ -53,7 +68,7 @@ class _EmptyParams(BaseModel):
 
 
 class StatsForecastModel(BaseForecastModel):
-    """Модели StatsForecast: AutoARIMA, AutoETS, AutoTheta."""
+    """Модели StatsForecast: AutoARIMA, AutoETS, AutoTheta, MSTL."""
 
     def __init__(self, model_type: StatsForecastModelType, approximation: bool = True) -> None:
         """Инициализирует модель заданного типа."""
@@ -94,7 +109,7 @@ class StatsForecastModel(BaseForecastModel):
                 progress_fn("обучение на train...", 10.0)
             val_size = splits.val[date_col].nunique()
             sf_val = StatsForecast(
-                models=[_make_sf_model(self.model_type, season_length, self.approximation)],
+                models=[_make_sf_model(self.model_type, season_length, self.approximation, freq)],
                 freq=freq,
                 verbose=False,
             )
@@ -118,7 +133,7 @@ class StatsForecastModel(BaseForecastModel):
         test_size = splits.test[date_col].nunique()
         fit_df = splits.train if splits.val is None else pd.concat([splits.train, splits.val], ignore_index=True)
         sf_test = StatsForecast(
-            models=[_make_sf_model(self.model_type, season_length, self.approximation)],
+            models=[_make_sf_model(self.model_type, season_length, self.approximation, freq)],
             freq=freq,
             verbose=False,
         )
@@ -167,7 +182,7 @@ class StatsForecastModel(BaseForecastModel):
         sf_df = _to_sf_format(full_df, cols.id, cols.date, cols.main_target)
 
         sf = StatsForecast(
-            models=[_make_sf_model(self.model_type, settings.ts.season_length, self.approximation)],
+            models=[_make_sf_model(self.model_type, settings.ts.season_length, self.approximation, settings.ts.freq)],
             freq=settings.ts.freq,
             verbose=False,
         )

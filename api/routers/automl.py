@@ -97,6 +97,7 @@ class FeatureParams(BaseModel):
     trend_window: int = 6
     use_cdf: bool = False
     cdf_decay: float = 0.9
+    use_mstl_seasonal: bool = False
 
 
 class AutoMLRunConfig(BaseModel):

@@ -174,10 +174,23 @@ def build_ts_features(
     windows = settings.downstream.windows
     ema_spans = settings.downstream.ema_spans
 
+    # Предвычисляем MSTL seasonal если включено
+    mstl_seasonal: dict[str, np.ndarray] | None = None
+    if settings.downstream.use_mstl_seasonal:
+        from src.mstl_features import decompose_mstl
+        mstl_seasonal = {}
+        for pid, grp in df.groupby(panel_col):
+            vals = grp[target].values
+            try:
+                decomp = decompose_mstl(vals, freq=settings.ts.freq)
+                mstl_seasonal[pid] = decomp["seasonal"]
+            except Exception:
+                mstl_seasonal[pid] = np.zeros(len(vals))
+
     features = []
 
     panels = df.groupby(panel_col)
-    for _, group in tqdm(panels, total=df[panel_col].nunique(), desc="Processing panels", disable=disable_tqdm):
+    for pid, group in tqdm(panels, total=df[panel_col].nunique(), desc="Processing panels", disable=disable_tqdm):
         group = group.copy()
 
         group = _add_lag_features(group, target, lags)
@@ -190,6 +203,8 @@ def build_ts_features(
             group = _add_trend_features(group, target, settings.downstream.trend_window)
         if settings.downstream.use_cdf:
             group = _add_cdf_features(group, target, settings.downstream.cdf_decay)
+        if mstl_seasonal is not None and pid in mstl_seasonal:
+            group[f"{target}_mstl_seasonal"] = mstl_seasonal[pid]
 
         features.append(group)
 

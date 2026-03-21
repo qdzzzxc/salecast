@@ -16,7 +16,7 @@ from app.api_client import (
 )
 from app.state import get_current_project
 
-_ALL_MODELS = ["seasonal_naive", "catboost", "catboost_per_panel", "catboost_clustered", "autoarima", "autoets", "autotheta"]
+_ALL_MODELS = ["seasonal_naive", "catboost", "catboost_per_panel", "catboost_clustered", "autoarima", "autoets", "autotheta", "mstl"]
 
 _FREQ_LABELS: dict[str, str] = {
     "D": "Дневная", "B": "Рабочие дни",
@@ -34,6 +34,7 @@ _MODEL_LABELS = {
     "autoarima": "AutoARIMA",
     "autoets": "AutoETS",
     "autotheta": "AutoTheta",
+    "mstl": "MSTL",
 }
 _MODEL_COLORS = {
     "seasonal_naive": "#4CAF50",
@@ -43,6 +44,7 @@ _MODEL_COLORS = {
     "autoarima": "#FFB347",
     "autoets": "#87CEEB",
     "autotheta": "#F7C948",
+    "mstl": "#9B59B6",
 }
 _METRICS = ["mape", "rmse", "mae"]
 
@@ -92,6 +94,8 @@ def _render_config(has_clustering: bool = False) -> dict:
                 st.caption("Медленно")
             elif model == "catboost_clustered":
                 st.caption("Нет кластеров" if disabled else "Из кластеризации")
+            elif model == "mstl":
+                st.caption("Декомпозиция")
             if checked and not disabled:
                 selected.append(model)
 
@@ -102,6 +106,7 @@ def _render_config(has_clustering: bool = False) -> dict:
     trend_window = 6
     use_cdf = False
     cdf_decay = 0.9
+    use_mstl_seasonal = False
     if any(m in selected for m in ("catboost", "catboost_per_panel", "catboost_clustered")):
         with st.expander("Настройки CatBoost (общие для всех вариантов)"):
             cb_iterations = st.number_input(
@@ -143,6 +148,12 @@ def _render_config(has_clustering: bool = False) -> dict:
                         "Затухание CDF", min_value=0.5, max_value=1.0, step=0.05, format="%.2f",
                         value=st.session_state.get("cb_cdf_decay", 0.9), key="cb_cdf_decay",
                     )
+            use_mstl_seasonal = st.checkbox(
+                "MSTL-сезонность",
+                value=st.session_state.get("cb_use_mstl_seasonal", False),
+                key="cb_use_mstl_seasonal",
+                help="Добавляет сезонную компоненту MSTL как признак (декомпозиция ряда)",
+            )
 
     autoarima_approx = True
     if "autoarima" in selected:
@@ -200,6 +211,7 @@ def _render_config(has_clustering: bool = False) -> dict:
             "trend_window": int(trend_window),
             "use_cdf": use_cdf,
             "cdf_decay": float(cdf_decay),
+            "use_mstl_seasonal": use_mstl_seasonal,
         },
     }
 

@@ -1,12 +1,15 @@
 import random
 
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
 
 from app.api_client import get_panels_data
 from app.state import get_current_project, set_page
+from src.mstl_features import decompose_mstl, seasonality_strength
 
 _FREQ_OPTIONS: dict[str, str | None] = {
     "🔍 Авто (из данных)": None,
@@ -170,7 +173,10 @@ def _add_split_zones(fig: go.Figure, dates: list, val_periods: int, test_periods
                       annotation_text="test", annotation_position="top left")
 
 
-def _render_panels_table(panels: list[dict], project_id: str, val_periods: int = 0, test_periods: int = 0) -> None:
+def _render_panels_table(
+    panels: list[dict], project_id: str, result: dict,
+    val_periods: int = 0, test_periods: int = 0,
+) -> None:
     """Отображает таблицу с результатами диагностики по панелям."""
     rows = []
     for p in panels:
@@ -236,6 +242,54 @@ def _render_panels_table(panels: list[dict], project_id: str, val_periods: int =
             )
             st.plotly_chart(fig, use_container_width=True)
 
+            # MSTL-декомпозиция для выбранной панели
+            effective_freq = _get_effective_freq(result, project_id)
+            with st.expander("MSTL-декомпозиция"):
+                try:
+                    _render_mstl_decomposition(panel["dates"], panel["values"], effective_freq)
+                except Exception as e:
+                    st.warning(f"Не удалось выполнить декомпозицию: {e}")
+
+
+def _get_effective_freq(result: dict, project_id: str) -> str:
+    """Возвращает текущую частоту (override или авто)."""
+    ts = result.get("ts", {})
+    override = st.session_state.get(f"freq_override_{project_id}")
+    return override if override else ts.get("freq", "MS")
+
+
+def _render_mstl_decomposition(dates: list, values: list, freq: str) -> None:
+    """Показывает MSTL-декомпозицию: original, trend, seasonal, remainder."""
+    arr = np.array(values, dtype=float)
+    decomp = decompose_mstl(arr, freq=freq)
+    ss = seasonality_strength(decomp["seasonal"], decomp["remainder"])
+
+    st.metric("Сила сезонности", f"{ss:.2f}", help="0 = нет сезонности, 1 = идеальная")
+
+    components = [
+        ("Исходный ряд", arr, "#7C6AF7"),
+        ("Тренд", decomp["trend"], "#4CAF50"),
+        ("Сезонность", decomp["seasonal"], "#FF6B6B"),
+        ("Остаток", decomp["remainder"], "#FFB347"),
+    ]
+    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.04)
+    for i, (name, data, color) in enumerate(components, 1):
+        fig.add_trace(
+            go.Scatter(x=dates, y=data, mode="lines", name=name, line=dict(color=color, width=1.5)),
+            row=i, col=1,
+        )
+        fig.update_yaxes(title_text=name, row=i, col=1, showgrid=True, gridcolor="#333")
+    fig.update_layout(
+        height=500,
+        margin=dict(l=0, r=0, t=10, b=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font_color="#FAFAFA",
+        showlegend=False,
+    )
+    fig.update_xaxes(showgrid=False)
+    st.plotly_chart(fig, use_container_width=True)
+
 
 def render() -> None:
     """Отображает экран качества данных."""
@@ -287,7 +341,10 @@ def render() -> None:
     st.markdown("**Детализация по панелям**")
     panels = diagnostics.get("panels", [])
     if panels:
-        _render_panels_table(panels, project_id=str(project.get("project_id", "")), val_periods=val_periods, test_periods=test_periods)
+        _render_panels_table(
+            panels, project_id=project_id, result=result,
+            val_periods=val_periods, test_periods=test_periods,
+        )
     else:
         st.info("Нет данных")
 

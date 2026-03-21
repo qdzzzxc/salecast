@@ -10,7 +10,7 @@ from src.custom_types import ModelResult, Splits
 
 
 class TestStatsForecastModel:
-    @pytest.mark.parametrize("model_type", ["autoarima", "autoets", "autotheta"])
+    @pytest.mark.parametrize("model_type", ["autoarima", "autoets", "autotheta", "mstl"])
     def test_fit_evaluate_returns_model_result(
         self,
         model_type: str,
@@ -23,7 +23,7 @@ class TestStatsForecastModel:
         assert isinstance(result, ModelResult)
         assert result.name == model_type
 
-    @pytest.mark.parametrize("model_type", ["autoarima", "autoets", "autotheta"])
+    @pytest.mark.parametrize("model_type", ["autoarima", "autoets", "autotheta", "mstl"])
     def test_predictions_are_finite(
         self,
         model_type: str,
@@ -63,7 +63,7 @@ class TestStatsForecastModel:
 class TestStatsForecastFuture:
     HORIZON = 3
 
-    @pytest.mark.parametrize("model_type", ["autoarima", "autoets", "autotheta"])
+    @pytest.mark.parametrize("model_type", ["autoarima", "autoets", "autotheta", "mstl"])
     def test_returns_dataframe(
         self,
         model_type: str,

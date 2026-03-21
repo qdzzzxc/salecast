@@ -350,6 +350,7 @@ def run_automl(
                         "season_length": ts_config.season_length,
                         "freq_source": "manual" if freq else "auto",
                     },
+                    "feature_params": feature_params or {},
                 },
             }
 

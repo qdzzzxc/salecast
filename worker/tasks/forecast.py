@@ -86,7 +86,7 @@ def _build_model(model_name: str, cluster_labels: dict[str, int] | None = None):
         return CatBoostPerPanelForecastModel()
     if model_name == "catboost_clustered":
         return CatBoostClusteredForecastModel(cluster_labels=cluster_labels or {})
-    if model_name in ("autoarima", "autoets", "autotheta"):
+    if model_name in ("autoarima", "autoets", "autotheta", "mstl"):
         return StatsForecastModel(model_type=model_name)
     raise ValueError(f"Неизвестная модель: {model_name}")
 
@@ -147,11 +147,16 @@ def run_forecast(
             lags = get_downstream_lags(ts_config.freq)
             logger.info("Forecast: freq=%s, season_length=%d", ts_config.freq, ts_config.season_length)
             base_settings = Settings()
+            downstream_update: dict = {"lags": lags}
+            automl_info = automl_job.result.get("automl", {})
+            fp = automl_info.get("feature_params")
+            if fp:
+                downstream_update.update(fp)
             settings = base_settings.model_copy(
                 update={
                     "columns": ColumnConfig(id=panel_col, date=date_col, main_target=value_col),
                     "ts": ts_config,
-                    "downstream": base_settings.downstream.model_copy(update={"lags": lags}),
+                    "downstream": base_settings.downstream.model_copy(update=downstream_update),
                 }
             )
 
