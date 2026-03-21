@@ -17,6 +17,7 @@ celery = Celery(
         "worker.tasks.run_automl",
         "worker.tasks.forecast",
         "worker.tasks.clustering",
+        "worker.tasks.cross_validation",
     ],
 )
 
