@@ -332,6 +332,7 @@ def run_automl(
                     f"test_{selection_metric}": _extract_metric(r, selection_metric, "test"),
                     "panel_metrics": _extract_panel_metrics(r, selection_metric),
                     "predictions_key": pred_keys.get(r.name),
+                    "feature_importance": r.feature_importance,
                 }
                 for r in all_results
             ]

@@ -124,6 +124,13 @@ class CatBoostForecastModel(BaseForecastModel):
         if callback.cancelled:
             raise ModelCancelledError(self.name)
 
+        # Feature importance (built-in CatBoost)
+        feature_importance = sorted(
+            zip(model.feature_names_, model.get_feature_importance().tolist()),
+            key=lambda x: x[1],
+            reverse=True,
+        )
+
         if progress_fn:
             progress_fn("оценка качества...", 92.0)
 
@@ -141,6 +148,7 @@ class CatBoostForecastModel(BaseForecastModel):
             name=self.name,
             evaluation=evaluation,
             params=self.params,
+            feature_importance=feature_importance,
         )
 
     def forecast_future(
@@ -255,6 +263,7 @@ class CatBoostPerPanelForecastModel(BaseForecastModel):
         splits_acc: dict[str, list[tuple[pd.DataFrame, np.ndarray]]] = {
             "train": [], "val": [], "test": []
         }
+        importance_acc: dict[str, list[float]] = {}
 
         for i, panel_id in enumerate(panels):
             if cancel_fn and cancel_fn():
@@ -303,6 +312,9 @@ class CatBoostPerPanelForecastModel(BaseForecastModel):
                 settings=settings,
             )
 
+            for fname, imp in zip(model.feature_names_, model.get_feature_importance().tolist()):
+                importance_acc.setdefault(fname, []).append(imp)
+
             for split_name, split_df in ready.splits:
                 if split_df is None or len(split_df) == 0:
                     continue
@@ -326,10 +338,19 @@ class CatBoostPerPanelForecastModel(BaseForecastModel):
         )
         log_evaluation_results(evaluation)
 
+        feature_importance = sorted(
+            [(f, sum(vs) / len(vs)) for f, vs in importance_acc.items()],
+            key=lambda x: x[1],
+            reverse=True,
+        )
+
         if progress_fn:
             progress_fn("готово", 100.0)
 
-        return ModelResult(name=self.name, evaluation=evaluation, params=self.params)
+        return ModelResult(
+            name=self.name, evaluation=evaluation, params=self.params,
+            feature_importance=feature_importance,
+        )
 
     def forecast_future(
         self,
