@@ -1,0 +1,1 @@
+docker compose --progress=plain -f docker-compose.yml -f docker-compose.gpu.yml up --build
