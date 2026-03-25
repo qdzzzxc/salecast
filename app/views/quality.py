@@ -80,7 +80,7 @@ def _render_status_chart(summary: dict[str, int]) -> None:
         font_color="#FAFAFA",
         margin=dict(t=0, b=0, l=0, r=0),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _render_panel_charts(panels: list[dict]) -> None:
@@ -108,7 +108,7 @@ def _render_panel_charts(panels: list[dict]) -> None:
                 xaxis=dict(showgrid=False),
                 yaxis=dict(showgrid=True, gridcolor="#333"),
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
 
 def _render_filtration_steps(steps: dict, filtered_samples: dict, project_id: str) -> None:
@@ -236,7 +236,7 @@ def _render_panels_table(
     display_df = df.drop(columns=["Статус"]).reset_index(drop=True)
     selection = st.dataframe(
         display_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         selection_mode="single-row",
         on_select="rerun",
@@ -275,7 +275,7 @@ def _render_panels_table(
                 xaxis=dict(showgrid=False),
                 yaxis=dict(showgrid=True, gridcolor="#333"),
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
             # MSTL-декомпозиция для выбранной панели
             effective_freq = _get_effective_freq(result, project_id)
@@ -324,7 +324,7 @@ def _render_mstl_decomposition(dates: list, values: list, freq: str) -> None:
         showlegend=False,
     )
     fig.update_xaxes(showgrid=False)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def render() -> None:

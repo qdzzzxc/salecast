@@ -132,6 +132,7 @@ def run_preprocessing(
             _add_step(session, job, "loading", "Загрузка данных из хранилища")
             csv_bytes = _download_csv(csv_key)
             df = pd.read_csv(io.BytesIO(csv_bytes))
+            df[panel_col] = df[panel_col].astype(str)
             df[date_col] = pd.to_datetime(df[date_col])
             logger.info("Загружен CSV: %d строк, колонки: %s", len(df), list(df.columns))
             ts_config = infer_ts_config(df, date_col)

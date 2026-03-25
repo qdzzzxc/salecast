@@ -103,7 +103,7 @@ def _render_umap(umap_records: list[dict], panel_col: str) -> None:
             trace.marker.opacity = 0.5
 
     fig.update_layout(height=450, margin=dict(l=0, r=0, t=40, b=0), **_DARK_LAYOUT)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _render_distribution(umap_records: list[dict]) -> None:
@@ -143,7 +143,7 @@ def _render_distribution(umap_records: list[dict]) -> None:
         showlegend=False,
         **_DARK_LAYOUT,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _render_silhouette(silhouette_scores: dict, best_k: int | None) -> None:
@@ -181,7 +181,7 @@ def _render_silhouette(silhouette_scores: dict, best_k: int | None) -> None:
         margin=dict(l=0, r=0, t=40, b=0),
         **_DARK_LAYOUT,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _render_mean_ts(mean_ts_records: list[dict]) -> None:
@@ -221,7 +221,7 @@ def _render_mean_ts(mean_ts_records: list[dict]) -> None:
             **_DARK_LAYOUT,
         )
         with cols[i % n_cols]:
-            st.plotly_chart(fig, use_container_width=True, key=f"cluster_ts_{cluster_id}")
+            st.plotly_chart(fig, width="stretch", key=f"cluster_ts_{cluster_id}")
 
 
 def render() -> None:
@@ -386,7 +386,7 @@ def render() -> None:
         else:
             st.caption("MSTL-декомпозиция → нормализованный сезонный вектор для каждой панели")
 
-    if st.button("▶ Запустить кластеризацию", type="primary", use_container_width=True):
+    if st.button("▶ Запустить кластеризацию", type="primary", width="stretch"):
         with st.spinner("Запускаю..."):
             try:
                 job = run_clustering(

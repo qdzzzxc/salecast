@@ -18,6 +18,7 @@ celery = Celery(
         "worker.tasks.forecast",
         "worker.tasks.clustering",
         "worker.tasks.cross_validation",
+        "worker.tasks.ensemble",
     ],
 )
 

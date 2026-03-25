@@ -1,6 +1,6 @@
 FROM python:3.10-slim AS deps
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.1 /uv /uvx /bin/
 
 WORKDIR /app
 

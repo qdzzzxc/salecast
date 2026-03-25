@@ -387,7 +387,7 @@ def _render_loss_chart(
         yaxis=dict(title="Loss", showgrid=True, gridcolor="#333"),
         showlegend=False,
     )
-    st.plotly_chart(fig, use_container_width=True, key="ts2vec_loss_chart")
+    st.plotly_chart(fig, width="stretch", key="ts2vec_loss_chart")
 
 
 def _render_progress(project_id: str, job_id: str, models: list[str]) -> bool:
@@ -470,7 +470,7 @@ def _render_progress(project_id: str, job_id: str, models: list[str]) -> bool:
                     _render_loss_chart(loss_history, float(best) if best else None)
 
             with col_skip:
-                if st.button("Пропустить", key=f"skip_{model}", use_container_width=True):
+                if st.button("Пропустить", key=f"skip_{model}", width="stretch"):
                     try:
                         skip_model(project_id, job_id, model)
                     except Exception:
@@ -535,7 +535,7 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
         }
         for mr in sorted_mrs
     ]
-    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(summary_rows), width="stretch", hide_index=True)
 
     # Лучшие / худшие панели
     best_mr = next(mr for mr in model_results if mr["name"] == best_model)
@@ -593,7 +593,7 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
     st.markdown("**Результаты по панелям (лучшая модель)**")
     selection = st.dataframe(
         panel_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         selection_mode="single-row",
         on_select="rerun",
@@ -635,7 +635,7 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
                     coloraxis_showscale=False,
                     showlegend=False,
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
 
 def _render_panel_chart(
@@ -736,7 +736,7 @@ def _render_panel_chart(
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     )
-    st.plotly_chart(fig, use_container_width=True, key=f"panel_chart_{panel_id}")
+    st.plotly_chart(fig, width="stretch", key=f"panel_chart_{panel_id}")
 
 
 def _render_mini_charts(
@@ -819,7 +819,7 @@ def _render_mini_charts(
                 orientation="h", yanchor="top", y=-0.05, xanchor="left", x=0, font=dict(size=10)
             ),
         )
-        st.plotly_chart(fig, use_container_width=True, key=f"mini_{key_prefix}_{panel_id}")
+        st.plotly_chart(fig, width="stretch", key=f"mini_{key_prefix}_{panel_id}")
 
 
 def render() -> None:
@@ -845,7 +845,7 @@ def render() -> None:
     ):
         _render_results(project, automl_result, split_result)
         st.divider()
-        if st.button("🔄 Перезапустить моделирование", use_container_width=False):
+        if st.button("🔄 Перезапустить моделирование"):
             st.session_state[rerun_key] = True
             st.rerun()
         return
@@ -919,10 +919,10 @@ def render() -> None:
     col_run, col_dl = st.columns([4, 1])
     yaml_bytes = yaml.dump(cfg, allow_unicode=True, default_flow_style=False).encode()
     col_dl.download_button(
-        "Сохранить конфиг", yaml_bytes, "automl_config.yaml", "text/yaml", use_container_width=True
+        "Сохранить конфиг", yaml_bytes, "automl_config.yaml", "text/yaml", width="stretch"
     )
 
-    if col_run.button("▶ Запустить AutoML", type="primary", use_container_width=True):
+    if col_run.button("▶ Запустить AutoML", type="primary", width="stretch"):
         with st.spinner("Запускаю..."):
             try:
                 job = run_automl(

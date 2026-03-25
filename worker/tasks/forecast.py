@@ -21,6 +21,12 @@ from src.automl.models.ts2vec_model import TS2VecForecastModel, TS2VecParameters
 from src.automl.ts_utils import get_downstream_lags, infer_ts_config
 from src.configs.settings import ColumnConfig, Settings
 from src.custom_types import ModelType
+from src.ensemble import (
+    best_per_panel_forecasts,
+    compute_inverse_metric_weights,
+    select_best_model_per_panel,
+    weighted_average_forecasts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +130,86 @@ def _build_model(
     raise ValueError(f"Неизвестная модель: {model_name}")
 
 
+def _run_ensemble_forecast(
+    automl_job,
+    automl_info: dict,
+    full_df: pd.DataFrame,
+    horizon: int,
+    settings,
+    cluster_labels: dict[str, int] | None,
+    session: Session,
+    job,
+    publish_fn,
+) -> pd.DataFrame:
+    """Строит прогноз для каждой модели из ансамбля и комбинирует результаты."""
+    ensemble_info = automl_job.result.get("ensemble", {})
+    ens_models = ensemble_info.get("models", [])
+    method = ensemble_info.get("method", "weighted_avg")
+
+    if not ens_models:
+        raise ValueError("Нет моделей в ensemble конфиге")
+
+    chronos_p = automl_info.get("chronos_params")
+    ts2vec_p = automl_info.get("ts2vec_params")
+
+    forecasts: dict[str, pd.DataFrame] = {}
+    for i, m_name in enumerate(ens_models):
+        _add_step(
+            session,
+            job,
+            f"forecast_{m_name}",
+            f"Прогноз {m_name} ({i + 1}/{len(ens_models)})",
+        )
+        publish_fn(
+            {
+                "type": "forecast_step",
+                "step_i": str(i + 1),
+                "total": str(len(ens_models)),
+            }
+        )
+
+        m_cluster = cluster_labels if m_name in ("catboost_clustered", "ts2vec_clustered") else None
+        model = _build_model(m_name, m_cluster, chronos_p, ts2vec_p)
+        fc_df = model.forecast_future(
+            full_df=full_df,
+            horizon=horizon,
+            settings=settings,
+        )
+        forecasts[m_name] = fc_df
+
+    publish_fn({"type": "step_start", "step": "forecasting"})
+
+    if method == "weighted_avg":
+        method_info = ensemble_info.get("method_info", {})
+        weights = method_info.get("weights", {})
+        if not weights:
+            # Fallback: compute from automl metrics
+            model_results = automl_info.get("model_results", [])
+            metric = automl_info.get("selection_metric", "mape")
+            val_metrics = {}
+            for mr in model_results:
+                if mr["name"] in forecasts:
+                    val_m = mr.get(f"val_{metric}")
+                    if val_m is not None:
+                        val_metrics[mr["name"]] = float(val_m)
+            weights = compute_inverse_metric_weights(val_metrics)
+        return weighted_average_forecasts(forecasts, weights)
+
+    # best_per_panel
+    method_info = ensemble_info.get("method_info", {})
+    panel_best = method_info.get("panel_best_model", {})
+    if not panel_best:
+        model_results = automl_info.get("model_results", [])
+        metric = automl_info.get("selection_metric", "mape")
+        model_panel_m = {
+            mr["name"]: mr.get("panel_metrics", [])
+            for mr in model_results
+            if mr["name"] in forecasts
+        }
+        panel_best = select_best_model_per_panel(model_panel_m)
+    return best_per_panel_forecasts(forecasts, panel_best)
+
+
 @celery.task(bind=True, name="worker.tasks.forecast.run_forecast")
 def run_forecast(
     self,
@@ -170,11 +256,12 @@ def run_forecast(
             test_df = _load_csv(split_info["test_key"])
 
             full_df = pd.concat([train_df, val_df, test_df], ignore_index=True)
+            full_df[panel_col] = full_df[panel_col].astype(str)
             full_df[date_col] = pd.to_datetime(full_df[date_col])
             full_df = full_df.sort_values([panel_col, date_col]).reset_index(drop=True)
 
             if panel_ids:
-                full_df = full_df[full_df[panel_col].astype(str).isin(set(panel_ids))]
+                full_df = full_df[full_df[panel_col].isin(set(panel_ids))]
 
             ts_config = infer_ts_config(full_df, date_col)
             lags = get_downstream_lags(ts_config.freq)
@@ -206,24 +293,35 @@ def run_forecast(
                     )
 
             _publish({"type": "step_start", "step": "training"})
-            _add_step(session, job, "forecasting", f"Прогноз {model_name} на {horizon} точек")
 
-            chronos_p = automl_info.get("chronos_params")
-            ts2vec_p = automl_info.get("ts2vec_params")
-            model = _build_model(model_name, cluster_labels, chronos_p, ts2vec_p)
-            forecast_df = model.forecast_future(
-                full_df=full_df,
-                horizon=horizon,
-                settings=settings,
-                on_training_done=lambda: _publish({"type": "step_start", "step": "forecasting"}),
-                on_forecast_step=lambda i, n: _publish(
-                    {
-                        "type": "forecast_step",
-                        "step_i": str(i),
-                        "total": str(n),
-                    }
-                ),
-            )
+            if model_name == "ensemble":
+                forecast_df = _run_ensemble_forecast(
+                    automl_job,
+                    automl_info,
+                    full_df,
+                    horizon,
+                    settings,
+                    cluster_labels,
+                    session,
+                    job,
+                    _publish,
+                )
+            else:
+                _add_step(session, job, "forecasting", f"Прогноз {model_name} на {horizon} точек")
+                chronos_p = automl_info.get("chronos_params")
+                ts2vec_p = automl_info.get("ts2vec_params")
+                model = _build_model(model_name, cluster_labels, chronos_p, ts2vec_p)
+                forecast_df = model.forecast_future(
+                    full_df=full_df,
+                    horizon=horizon,
+                    settings=settings,
+                    on_training_done=lambda: _publish(
+                        {"type": "step_start", "step": "forecasting"}
+                    ),
+                    on_forecast_step=lambda i, n: _publish(
+                        {"type": "forecast_step", "step_i": str(i), "total": str(n)}
+                    ),
+                )
 
             forecast_key = f"projects/{project_id}/forecast.csv"
             _publish({"type": "step_start", "step": "saving"})

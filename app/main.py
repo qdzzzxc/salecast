@@ -4,7 +4,7 @@ import streamlit as st
 
 from app.api_client import create_project, delete_project, list_projects
 from app.state import get_current_project, init_state, set_page, set_project
-from app.views import automl, clustering, forecast, quality, upload
+from app.views import automl, clustering, cross_validation, ensemble, forecast, quality, upload
 
 _EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 _DEMO_PROJECTS = [
@@ -55,6 +55,8 @@ def _project_icon(project: dict) -> str:
     result = job.get("result") or {}
     if "forecast" in result:
         return "✅ 📈"
+    if "ensemble" in result:
+        return "✅ 🔀"
     if "automl" in result:
         return "✅ ⚙"
     if "clustering" in result:
@@ -70,7 +72,7 @@ def _render_sidebar() -> None:
         st.markdown("## 📈 Salecast")
         st.divider()
 
-        if st.button("＋ Новый проект", use_container_width=True, type="primary"):
+        if st.button("＋ Новый проект", width="stretch", type="primary"):
             st.session_state.current_project = None
             set_page("upload")
             st.rerun()
@@ -96,7 +98,7 @@ def _render_sidebar() -> None:
                 with col_name:
                     if st.button(
                         label,
-                        use_container_width=True,
+                        width="stretch",
                         key=f"open_{project['id']}",
                         disabled=is_active,
                     ):
@@ -106,6 +108,8 @@ def _render_sidebar() -> None:
                             result = job.get("result") or {}
                             if "forecast" in result:
                                 set_page("forecast")
+                            elif "ensemble" in result:
+                                set_page("ensemble")
                             elif "automl" in result:
                                 set_page("automl")
                             elif "clustering" in result:
@@ -149,14 +153,14 @@ def _render_sidebar() -> None:
         st.sidebar.divider()
         with st.sidebar.expander("⚙ Настройки"):
             st.markdown("**Сервисы**")
-            st.link_button("Flower (Celery)", "http://localhost:5555", use_container_width=True)
-            st.link_button("RedisInsight", "http://localhost:5540", use_container_width=True)
+            st.link_button("Flower (Celery)", "http://localhost:5555", width="stretch")
+            st.link_button("RedisInsight", "http://localhost:5540", width="stretch")
             st.link_button(
-                "Adminer (PostgreSQL)", "http://localhost:8080", use_container_width=True
+                "Adminer (PostgreSQL)", "http://localhost:8080", width="stretch"
             )
-            st.link_button("MinIO Console", "http://localhost:9001", use_container_width=True)
+            st.link_button("MinIO Console", "http://localhost:9001", width="stretch")
             st.divider()
-            if st.button("↺ Сбросить демо-проекты", use_container_width=True):
+            if st.button("↺ Сбросить демо-проекты", width="stretch"):
                 try:
                     demo_ids = {
                         str(p["id"]) for p in (projects or []) if p["name"].startswith("Demo:")
@@ -180,6 +184,8 @@ _STEP_LABELS = {
     "quality": "Качество данных",
     "clustering": "Кластеризация",
     "automl": "Моделирование",
+    "ensemble": "Ансамбль",
+    "cross_validation": "Кросс-валидация",
     "forecast": "Прогноз",
 }
 
@@ -191,6 +197,8 @@ def _render_steps(page: str, result: dict) -> None:
         options.append("clustering")
     options.append("automl")
     if result.get("automl"):
+        options.append("ensemble")
+        options.append("cross_validation")
         options.append("forecast")
     selected = st.segmented_control(
         label="Шаги",
@@ -227,6 +235,10 @@ def _render_page() -> None:
         clustering.render()
     elif page == "automl":
         automl.render()
+    elif page == "ensemble":
+        ensemble.render()
+    elif page == "cross_validation":
+        cross_validation.render()
     elif page == "forecast":
         forecast.render()
 
