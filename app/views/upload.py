@@ -183,7 +183,7 @@ def _render_panel_chart(
         margin=dict(l=0, r=0, t=40, b=0),
         showlegend=False,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _render_ready_to_run(project: dict) -> None:
@@ -212,7 +212,7 @@ def _render_ready_to_run(project: dict) -> None:
 
     st.divider()
 
-    if st.button("▶ Запустить обработку", type="primary", use_container_width=True):
+    if st.button("▶ Запустить обработку", type="primary", width="stretch"):
         with st.spinner("Запускаю..."):
             try:
                 job = run_project(project_id, val_periods=val_periods, test_periods=test_periods)
@@ -236,7 +236,7 @@ def _render_ready_to_run(project: dict) -> None:
 
     selection = st.dataframe(
         display_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         selection_mode="single-row",
         on_select="rerun",
@@ -262,7 +262,7 @@ def _render_upload_form() -> None:
     columns = list(df_preview.columns)
 
     st.markdown("**Предпросмотр данных**")
-    st.dataframe(df_preview, use_container_width=True)
+    st.dataframe(df_preview, width="stretch")
 
     st.divider()
     st.markdown("**Маппинг колонок**")
@@ -277,7 +277,7 @@ def _render_upload_form() -> None:
 
     name = st.text_input("Название проекта", value=uploaded.name.replace(".csv", ""))
 
-    if st.button("Сохранить проект", type="primary", use_container_width=True):
+    if st.button("Сохранить проект", type="primary", width="stretch"):
         if not name.strip():
             st.error("Введите название проекта")
             return

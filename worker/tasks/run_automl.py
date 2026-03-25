@@ -99,7 +99,7 @@ def _build_predictions_df(result, splits: Splits, panel_col: str, date_col: str)
             continue
         for pm in split_eval.panel_metrics:
             panel_id = str(pm.panel_id)
-            panel_df = split_df[split_df[panel_col].astype(str) == panel_id].sort_values(date_col)
+            panel_df = split_df[split_df[panel_col] == panel_id].sort_values(date_col)
             dates = pd.to_datetime(panel_df[date_col]).dt.strftime("%Y-%m-%d").tolist()
             y_pred = list(pm.y_pred) if hasattr(pm.y_pred, "__iter__") else []
             if len(dates) == len(y_pred):
@@ -235,9 +235,12 @@ def run_automl(
                 for p in diag_panels
                 if p.get("overall_status") in ("green", "yellow")
             }
-            train_df = train_df[train_df[panel_col].astype(str).isin(good_panels)]
-            val_df = val_df[val_df[panel_col].astype(str).isin(good_panels)]
-            test_df = test_df[test_df[panel_col].astype(str).isin(good_panels)]
+            train_df[panel_col] = train_df[panel_col].astype(str)
+            val_df[panel_col] = val_df[panel_col].astype(str)
+            test_df[panel_col] = test_df[panel_col].astype(str)
+            train_df = train_df[train_df[panel_col].isin(good_panels)]
+            val_df = val_df[val_df[panel_col].isin(good_panels)]
+            test_df = test_df[test_df[panel_col].isin(good_panels)]
             logger.info("AutoML: %d панелей (green+yellow)", len(good_panels))
 
             train_df[date_col] = pd.to_datetime(train_df[date_col])

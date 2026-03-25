@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from api.database import Base, engine
-from api.routers import automl, clustering, forecast, jobs, panels, projects
+from api.routers import automl, clustering, ensemble, forecast, jobs, panels, projects
 from api.storage import ensure_bucket
 
 
@@ -24,6 +24,7 @@ app.include_router(jobs.router)
 app.include_router(panels.router)
 app.include_router(automl.router)
 app.include_router(clustering.router)
+app.include_router(ensemble.router)
 app.include_router(forecast.router)
 
 

@@ -83,7 +83,7 @@ class TS2VecClusteredForecastModel(BaseForecastModel):
 
             # Фильтрация splits по панелям кластера
             def _filter_cluster(df: pd.DataFrame) -> pd.DataFrame:
-                return df[df[panel_col].astype(str).isin(cluster_panels)]
+                return df[df[panel_col].isin(cluster_panels)]
 
             c_train = _filter_cluster(splits.train)
             c_val = _filter_cluster(splits.val) if splits.val is not None else None
@@ -229,7 +229,7 @@ class TS2VecClusteredForecastModel(BaseForecastModel):
             cluster_panels = {
                 pid for pid, cid in self.cluster_labels.items() if int(cid) == cluster_id
             }
-            cluster_df = full_df[full_df[panel_col].astype(str).isin(cluster_panels)].copy()
+            cluster_df = full_df[full_df[panel_col].isin(cluster_panels)].copy()
             if len(cluster_df) == 0:
                 continue
 

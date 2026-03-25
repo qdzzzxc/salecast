@@ -84,7 +84,7 @@ class CatBoostClusteredForecastModel(BaseForecastModel):
             if not cluster_panels:
                 continue
 
-            panel_mask = full_features[panel_col].astype(str).isin(cluster_panels)
+            panel_mask = full_features[panel_col].isin(cluster_panels)
 
             train_feat = full_features[panel_mask & (full_features[_SPLIT_COL] == "train")].drop(
                 columns=[_SPLIT_COL]
@@ -201,7 +201,7 @@ class CatBoostClusteredForecastModel(BaseForecastModel):
             cluster_panels = {
                 pid for pid, cid in self.cluster_labels.items() if int(cid) == cluster_id
             }
-            cluster_df = full_df[full_df[panel_col].astype(str).isin(cluster_panels)].copy()
+            cluster_df = full_df[full_df[panel_col].isin(cluster_panels)].copy()
             if len(cluster_df) == 0:
                 continue
 

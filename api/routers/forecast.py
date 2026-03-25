@@ -82,6 +82,8 @@ class ForecastRunConfig(BaseModel):
 class RunCVRequest(BaseModel):
     model_type: str
     n_folds: int = 5
+    ensemble_models: list[str] | None = None
+    ensemble_method: str = "weighted_avg"
 
 
 @router.post("/{project_id}/run_forecast", response_model=JobSchema)
@@ -247,6 +249,8 @@ async def run_cv(
         automl_info.get("feature_params"),
         automl_info.get("chronos_params"),
         automl_info.get("ts2vec_params"),
+        config.ensemble_models,
+        config.ensemble_method,
     )
 
     return _to_job_schema(job)

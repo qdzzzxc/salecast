@@ -371,25 +371,35 @@ async def _run_cv(
     project_id: str,
     model_type: str,
     n_folds: int = 5,
+    ensemble_models: list[str] | None = None,
+    ensemble_method: str = "weighted_avg",
 ) -> dict[str, Any]:
+    payload: dict = {"model_type": model_type, "n_folds": n_folds}
+    if ensemble_models:
+        payload["ensemble_models"] = ensemble_models
+        payload["ensemble_method"] = ensemble_method
     async with aiohttp.ClientSession() as session:
         async with session.post(
             f"{_API_URL}/projects/{project_id}/run_cv",
-            json={"model_type": model_type, "n_folds": n_folds},
+            json=payload,
         ) as resp:
             resp.raise_for_status()
             return await resp.json()
 
 
-def run_cv(project_id: str, model_type: str, n_folds: int = 5) -> dict[str, Any]:
-    return _run(_run_cv(project_id, model_type, n_folds))
+def run_cv(
+    project_id: str,
+    model_type: str,
+    n_folds: int = 5,
+    ensemble_models: list[str] | None = None,
+    ensemble_method: str = "weighted_avg",
+) -> dict[str, Any]:
+    return _run(_run_cv(project_id, model_type, n_folds, ensemble_models, ensemble_method))
 
 
 async def _get_cv_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
     async with aiohttp.ClientSession() as session:
-        async with session.get(
-            f"{_API_URL}/projects/{project_id}/cv_progress/{job_id}"
-        ) as resp:
+        async with session.get(f"{_API_URL}/projects/{project_id}/cv_progress/{job_id}") as resp:
             resp.raise_for_status()
             return await resp.json()
 
@@ -407,6 +417,50 @@ async def _get_cv_result(project_id: str) -> dict[str, Any]:
 
 def get_cv_result(project_id: str) -> dict[str, Any]:
     return _run(_get_cv_result(project_id))
+
+
+async def _run_ensemble(
+    project_id: str,
+    models: list[str],
+    method: str = "weighted_avg",
+) -> dict[str, Any]:
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{_API_URL}/projects/{project_id}/run_ensemble",
+            json={"models": models, "method": method},
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def run_ensemble(
+    project_id: str, models: list[str], method: str = "weighted_avg"
+) -> dict[str, Any]:
+    return _run(_run_ensemble(project_id, models, method))
+
+
+async def _get_ensemble_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            f"{_API_URL}/projects/{project_id}/ensemble_progress/{job_id}"
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_ensemble_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
+    return _run(_get_ensemble_progress(project_id, job_id))
+
+
+async def _get_ensemble_result(project_id: str) -> dict[str, Any]:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{_API_URL}/projects/{project_id}/ensemble_result") as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_ensemble_result(project_id: str) -> dict[str, Any]:
+    return _run(_get_ensemble_result(project_id))
 
 
 async def _get_cluster_data(project_id: str) -> dict[str, Any]:

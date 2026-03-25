@@ -24,7 +24,14 @@ from src.automl.models.ts2vec_clustered_model import TS2VecClusteredForecastMode
 from src.automl.models.ts2vec_model import TS2VecForecastModel, TS2VecParameters
 from src.automl.ts_utils import get_downstream_lags, infer_ts_config, ts_config_from_freq
 from src.configs.settings import ColumnConfig, Settings
-from src.custom_types import CatBoostParameters, ModelType
+from src.custom_types import CatBoostParameters, ModelType, Splits
+from src.ensemble import (
+    best_per_panel_predictions,
+    compute_inverse_metric_weights,
+    select_best_model_per_panel,
+    weighted_average_predictions,
+)
+from src.evaluation import evaluate_multiple_splits
 from src.model_selection import generate_expanding_cv_folds
 
 logger = logging.getLogger(__name__)
@@ -81,7 +88,10 @@ def _upload_json(key: str, data: dict) -> None:
     client = _get_s3()
     body = json.dumps(data, ensure_ascii=False).encode()
     client.put_object(
-        Bucket=_minio_bucket, Key=key, Body=body, ContentLength=len(body),
+        Bucket=_minio_bucket,
+        Key=key,
+        Body=body,
+        ContentLength=len(body),
         ContentType="application/json",
     )
 
@@ -135,6 +145,119 @@ def _build_model(
     raise ValueError(f"Неизвестная модель: {model_type}")
 
 
+def _build_fold_predictions(
+    result, fold_splits: Splits, panel_col: str, date_col: str
+) -> pd.DataFrame:
+    """Строит DataFrame предсказаний модели на test split фолда."""
+    rows = []
+    for split_eval in result.evaluation.splits:
+        if split_eval.split_name != "test":
+            continue
+        test_df = fold_splits.test
+        for pm in split_eval.panel_metrics:
+            pid = str(pm.panel_id)
+            panel_df = test_df[test_df[panel_col] == pid].sort_values(date_col)
+            dates = pd.to_datetime(panel_df[date_col]).dt.strftime("%Y-%m-%d").tolist()
+            y_pred = list(pm.y_pred) if hasattr(pm.y_pred, "__iter__") else []
+            if len(dates) == len(y_pred):
+                for d, p in zip(dates, y_pred):
+                    rows.append({"panel_id": pid, "date": d, "split": "test", "y_pred": float(p)})
+    return pd.DataFrame(rows)
+
+
+def _evaluate_ensemble_fold(
+    fold_splits: Splits,
+    ensemble_models: list[str],
+    ensemble_method: str,
+    settings,
+    panel_col: str,
+    date_col: str,
+    value_col: str,
+    catboost_params: dict | None,
+    cluster_labels: dict[str, int] | None,
+    chronos_params: dict | None,
+    ts2vec_params: dict | None,
+    selection_metric: str,
+) -> dict:
+    """Обучает все модели ансамбля на фолде и возвращает метрики комбинированных предсказаний."""
+    predictions: dict[str, pd.DataFrame] = {}
+    model_val_metrics: dict[str, float] = {}
+    model_panel_metrics: dict[str, list[dict]] = {}
+
+    for m_name in ensemble_models:
+        model = _build_model(m_name, catboost_params, cluster_labels, chronos_params, ts2vec_params)
+        result = model.fit_evaluate(fold_splits, settings)
+
+        pred_df = _build_fold_predictions(result, fold_splits, panel_col, date_col)
+        if not pred_df.empty:
+            predictions[m_name] = pred_df
+
+        # Извлекаем val метрику для весов
+        for se in result.evaluation.splits:
+            if se.split_name == "val" or (se.split_name == "test" and fold_splits.val is None):
+                metric_val = getattr(se.overall_metrics, selection_metric, None)
+                if metric_val is not None:
+                    model_val_metrics[m_name] = float(metric_val)
+                # Panel metrics для best_per_panel
+                model_panel_metrics[m_name] = [
+                    {
+                        "panel_id": str(pm.panel_id),
+                        "val": float(getattr(pm.metrics, selection_metric, float("inf"))),
+                    }
+                    for pm in se.panel_metrics
+                ]
+
+    if len(predictions) < 2:
+        return {}
+
+    # Комбинируем
+    if ensemble_method == "weighted_avg":
+        weights = compute_inverse_metric_weights(model_val_metrics)
+        ensemble_preds = weighted_average_predictions(predictions, weights)
+    else:
+        panel_best = select_best_model_per_panel(model_panel_metrics)
+        ensemble_preds = best_per_panel_predictions(predictions, panel_best)
+
+    # Метрики на test
+    test_df = fold_splits.test.copy()
+    test_df[date_col] = pd.to_datetime(test_df[date_col])
+    ensemble_preds["date"] = pd.to_datetime(ensemble_preds["date"])
+
+    merged = test_df.merge(
+        ensemble_preds[["panel_id", "date", "y_pred"]],
+        left_on=[panel_col, date_col],
+        right_on=["panel_id", "date"],
+        how="inner",
+    )
+    if merged.empty:
+        return {}
+
+    eval_result = evaluate_multiple_splits(
+        {"test": (merged, merged["y_pred"].values)},
+        panel_column=panel_col,
+        target_column=value_col,
+    )
+    fold_metrics: dict[str, float] = {}
+    panel_metrics_list: list[dict] = []
+    for se in eval_result.splits:
+        fold_metrics = {
+            "mape": float(se.overall_metrics.mape),
+            "rmse": float(se.overall_metrics.rmse),
+            "mae": float(se.overall_metrics.mae),
+            "r2": float(se.overall_metrics.r2),
+        }
+        panel_metrics_list = [
+            {
+                "panel_id": str(pm.panel_id),
+                "mape": float(pm.metrics.mape),
+                "rmse": float(pm.metrics.rmse),
+            }
+            for pm in se.panel_metrics
+        ]
+
+    return {"metrics": fold_metrics, "panel_metrics": panel_metrics_list}
+
+
 @celery.task(bind=True, name="worker.tasks.cross_validation.run_cross_validation")
 def run_cross_validation(
     self,
@@ -151,6 +274,8 @@ def run_cross_validation(
     feature_params: dict | None = None,
     chronos_params: dict | None = None,
     ts2vec_params: dict | None = None,
+    ensemble_models: list[str] | None = None,
+    ensemble_method: str = "weighted_avg",
 ) -> dict:
     """Запускает temporal cross-validation для выбранной модели."""
     from api.models import Job
@@ -172,6 +297,7 @@ def run_cross_validation(
             test_df = _load_csv(split_info["test_key"])
 
             full_df = pd.concat([train_df, val_df, test_df], ignore_index=True)
+            full_df[panel_col] = full_df[panel_col].astype(str)
             full_df[date_col] = pd.to_datetime(full_df[date_col])
             full_df = full_df.sort_values([panel_col, date_col]).reset_index(drop=True)
 
@@ -183,7 +309,7 @@ def run_cross_validation(
                     for p in diag_panels
                     if p.get("overall_status") in ("green", "yellow")
                 }
-                full_df = full_df[full_df[panel_col].astype(str).isin(good_panels)]
+                full_df = full_df[full_df[panel_col].isin(good_panels)]
 
             # Settings
             ts_config = ts_config_from_freq(freq) if freq else infer_ts_config(full_df, date_col)
@@ -202,7 +328,12 @@ def run_cross_validation(
 
             # Cluster labels если нужно
             cluster_labels: dict[str, int] | None = None
-            if model_type in ("catboost_clustered", "ts2vec_clustered"):
+            needs_clusters = model_type in ("catboost_clustered", "ts2vec_clustered")
+            if model_type == "ensemble" and ensemble_models:
+                needs_clusters = any(
+                    m in ("catboost_clustered", "ts2vec_clustered") for m in ensemble_models
+                )
+            if needs_clusters:
                 clustering_info = automl_job.result.get("clustering")
                 if clustering_info:
                     labels_df = _load_csv(clustering_info["labels_key"])
@@ -219,43 +350,75 @@ def run_cross_validation(
             fold_results: list[dict] = []
             all_panel_metrics: list[dict] = []
 
+            is_ensemble = model_type == "ensemble" and ensemble_models
+            selection_metric = automl_job.result.get("automl", {}).get("selection_metric", "mape")
+
             for fold_i, fold_splits in enumerate(folds):
                 fold_num = fold_i + 1
                 redis_client.xadd(
                     stream_key,
                     {"type": "fold_start", "fold": str(fold_num), "total": str(n_folds)},
                 )
-                _add_step(
-                    session, job, f"fold_{fold_num}",
-                    f"Fold {fold_num}/{n_folds}: обучение {model_type}",
-                )
 
-                model = _build_model(
-                    model_type, catboost_params, cluster_labels, chronos_params, ts2vec_params
-                )
+                if is_ensemble:
+                    _add_step(
+                        session,
+                        job,
+                        f"fold_{fold_num}",
+                        f"Fold {fold_num}/{n_folds}: ансамбль ({len(ensemble_models)} моделей)",
+                    )
+                    ens_result = _evaluate_ensemble_fold(
+                        fold_splits,
+                        ensemble_models,
+                        ensemble_method,
+                        settings,
+                        panel_col,
+                        date_col,
+                        value_col,
+                        catboost_params,
+                        cluster_labels,
+                        chronos_params,
+                        ts2vec_params,
+                        selection_metric,
+                    )
+                    fold_metrics = ens_result.get("metrics", {})
+                    all_panel_metrics.extend(
+                        {**pm, "fold": fold_num} for pm in ens_result.get("panel_metrics", [])
+                    )
+                else:
+                    _add_step(
+                        session,
+                        job,
+                        f"fold_{fold_num}",
+                        f"Fold {fold_num}/{n_folds}: обучение {model_type}",
+                    )
+                    model = _build_model(
+                        model_type,
+                        catboost_params,
+                        cluster_labels,
+                        chronos_params,
+                        ts2vec_params,
+                    )
+                    result = model.fit_evaluate(fold_splits, settings)
 
-                result = model.fit_evaluate(fold_splits, settings)
-
-                # Извлекаем метрики test split
-                fold_metrics: dict[str, float] = {}
-                for split_eval in result.evaluation.splits:
-                    if split_eval.split_name == "test":
-                        fold_metrics = {
-                            "mape": float(split_eval.overall_metrics.mape),
-                            "rmse": float(split_eval.overall_metrics.rmse),
-                            "mae": float(split_eval.overall_metrics.mae),
-                            "r2": float(split_eval.overall_metrics.r2),
-                        }
-                        # Per-panel metrics
-                        all_panel_metrics.extend(
-                            {
-                                "fold": fold_num,
-                                "panel_id": str(pm.panel_id),
-                                "mape": float(pm.metrics.mape),
-                                "rmse": float(pm.metrics.rmse),
+                    fold_metrics = {}
+                    for split_eval in result.evaluation.splits:
+                        if split_eval.split_name == "test":
+                            fold_metrics = {
+                                "mape": float(split_eval.overall_metrics.mape),
+                                "rmse": float(split_eval.overall_metrics.rmse),
+                                "mae": float(split_eval.overall_metrics.mae),
+                                "r2": float(split_eval.overall_metrics.r2),
                             }
-                            for pm in split_eval.panel_metrics
-                        )
+                            all_panel_metrics.extend(
+                                {
+                                    "fold": fold_num,
+                                    "panel_id": str(pm.panel_id),
+                                    "mape": float(pm.metrics.mape),
+                                    "rmse": float(pm.metrics.rmse),
+                                }
+                                for pm in split_eval.panel_metrics
+                            )
 
                 fold_result = {
                     "fold": fold_num,
@@ -276,8 +439,10 @@ def run_cross_validation(
                 )
                 logger.info(
                     "CV fold %d/%d: MAPE=%.4f RMSE=%.4f",
-                    fold_num, n_folds,
-                    fold_metrics.get("mape", 0), fold_metrics.get("rmse", 0),
+                    fold_num,
+                    n_folds,
+                    fold_metrics.get("mape", 0),
+                    fold_metrics.get("rmse", 0),
                 )
 
             # Агрегация
