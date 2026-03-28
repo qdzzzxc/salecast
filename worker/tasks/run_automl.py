@@ -435,6 +435,7 @@ def run_automl(
                     "panel_metrics": _extract_panel_metrics(r, selection_metric),
                     "predictions_key": pred_keys.get(r.name),
                     "feature_importance": r.feature_importance,
+                    "loss_history": r.loss_history,
                 }
                 for r in all_results
             ]

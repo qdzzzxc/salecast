@@ -155,6 +155,11 @@ class TestTS2VecForecastModel:
         assert len(result.evaluation.splits) >= 1
         assert result.feature_importance is not None
         assert len(result.feature_importance) > 0
+        assert result.loss_history is not None
+        assert len(result.loss_history) == 3  # n_epochs=3
+        for epoch, loss in result.loss_history:
+            assert isinstance(epoch, int)
+            assert isinstance(loss, float)
 
     @pytest.mark.slow
     def test_forecast_future(self, panel_df) -> None:
