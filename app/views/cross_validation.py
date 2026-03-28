@@ -60,9 +60,10 @@ def _render_progress(project_id: str, job_id: str, n_folds: int) -> bool:
 
     for e in done_folds:
         fold = e.get("fold", "?")
-        mape = e.get("mape", "?")
+        mape_raw = e.get("mape", "?")
+        mape_pct = f"{float(mape_raw) * 100:.2f}" if mape_raw != "?" else "?"
         rmse = e.get("rmse", "?")
-        st.markdown(f"✅ Fold {fold}: MAPE = {mape}%, RMSE = {rmse}")
+        st.markdown(f"✅ Fold {fold}: MAPE = {mape_pct}%, RMSE = {rmse}")
 
     # Текущий fold
     started = [e for e in events if e.get("type") == "fold_start"]
@@ -104,7 +105,11 @@ def _render_results(project_id: str) -> None:
     std_mae = summary.get("std_mae")
 
     if mean_mape is not None:
-        col1.metric("MAPE", f"{mean_mape:.2f}%", delta=f"± {std_mape:.2f}" if std_mape else None)
+        col1.metric(
+            "MAPE",
+            f"{mean_mape * 100:.2f}%",
+            delta=f"± {std_mape * 100:.2f}" if std_mape else None,
+        )
     if mean_rmse is not None:
         col2.metric("RMSE", f"{mean_rmse:.2f}", delta=f"± {std_rmse:.2f}" if std_rmse else None)
     if mean_mae is not None:
@@ -113,6 +118,8 @@ def _render_results(project_id: str) -> None:
     # Таблица фолдов
     if folds:
         fold_df = pd.DataFrame(folds)
+        if "mape" in fold_df.columns:
+            fold_df["mape"] = fold_df["mape"] * 100
         display_cols = [
             c
             for c in ["fold", "mape", "rmse", "mae", "train_rows", "test_rows"]
@@ -122,7 +129,7 @@ def _render_results(project_id: str) -> None:
             fold_df[display_cols].rename(
                 columns={
                     "fold": "Fold",
-                    "mape": "MAPE",
+                    "mape": "MAPE, %",
                     "rmse": "RMSE",
                     "mae": "MAE",
                     "train_rows": "Train",
@@ -137,12 +144,13 @@ def _render_results(project_id: str) -> None:
     if panel_metrics:
         pm_df = pd.DataFrame(panel_metrics)
         if "mape" in pm_df.columns and len(pm_df) > 0:
+            pm_df["mape"] = pm_df["mape"] * 100
             fig = px.box(
                 pm_df,
                 x="fold",
                 y="mape",
                 title="Разброс MAPE по панелям",
-                labels={"fold": "Fold", "mape": "MAPE"},
+                labels={"fold": "Fold", "mape": "MAPE, %"},
             )
             fig.update_layout(
                 height=350,

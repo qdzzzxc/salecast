@@ -88,10 +88,10 @@ def _render_results(project_id: str, ensemble_info: dict) -> None:
 
     col1, col2, col3, col4 = st.columns(4)
     if val_metrics:
-        col1.metric("Val MAPE", f"{val_metrics.get('mape', 0):.2f}%")
+        col1.metric("Val MAPE", f"{val_metrics.get('mape', 0) * 100:.2f}%")
         col2.metric("Val RMSE", f"{val_metrics.get('rmse', 0):.2f}")
     if test_metrics:
-        col3.metric("Test MAPE", f"{test_metrics.get('mape', 0):.2f}%")
+        col3.metric("Test MAPE", f"{test_metrics.get('mape', 0) * 100:.2f}%")
         col4.metric("Test RMSE", f"{test_metrics.get('rmse', 0):.2f}")
 
     # Таблица сравнения
