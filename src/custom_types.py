@@ -379,7 +379,7 @@ class CatBoostParameters(BaseModel):
     l2_leaf_reg: float = Field(default=3.0, description="L2 регуляризация")
     subsample: float = Field(default=0.8, description="Доля samples для обучения")
     rsm: float = Field(default=0.8, description="Доля features для обучения")
-    random_seed: int = Field(default=420, description="Random seed")
+    random_seed: int = Field(default=42, description="Random seed")
     verbose: int | bool = Field(default=100, description="Частота вывода логов")
     loss_function: str = Field(default="RMSE", description="Функция потерь")
 

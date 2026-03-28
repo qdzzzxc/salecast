@@ -105,10 +105,14 @@ def _render_config(has_clustering: bool = False) -> dict:
     defaults = {"seasonal_naive", "catboost"}
     for i, model in enumerate(_ALL_MODELS):
         with cols[i]:
-            disabled = model in (
-                ModelType.catboost_clustered,
-                ModelType.ts2vec_clustered,
-            ) and not has_clustering
+            disabled = (
+                model
+                in (
+                    ModelType.catboost_clustered,
+                    ModelType.ts2vec_clustered,
+                )
+                and not has_clustering
+            )
             checked = st.checkbox(
                 _MODEL_LABELS[model],
                 value=model in defaults and not disabled,
@@ -122,6 +126,35 @@ def _render_config(has_clustering: bool = False) -> dict:
             if checked and not disabled:
                 selected.append(model)
 
+    n_trials = 30
+    hyperopt_timeout = None
+    metric = st.selectbox("Метрика отбора", _METRICS, key="automl_metric")
+    col_hp, col_trials, col_timeout = st.columns(3)
+    with col_hp:
+        use_hyperopt = st.toggle("Hyperopt (Optuna)", value=False, key="automl_hyperopt")
+    if use_hyperopt:
+        with col_trials:
+            n_trials = st.number_input(
+                "Trials",
+                min_value=1,
+                max_value=500,
+                step=5,
+                value=st.session_state.get("automl_n_trials", 30),
+                key="automl_n_trials",
+            )
+        with col_timeout:
+            timeout_min = st.number_input(
+                "Таймаут (мин)",
+                min_value=0,
+                max_value=120,
+                step=1,
+                value=st.session_state.get("automl_timeout_min", 0),
+                key="automl_timeout_min",
+                help="0 = без таймаута",
+            )
+            if timeout_min > 0:
+                hyperopt_timeout = int(timeout_min) * 60
+
     cb_iterations = 1000
     cb_lr = 0.03
     cb_depth = 6
@@ -130,34 +163,110 @@ def _render_config(has_clustering: bool = False) -> dict:
     use_cdf = False
     cdf_decay = 0.9
     use_mstl_seasonal = False
-    if any(m in selected for m in ("catboost", "catboost_per_panel", "catboost_clustered")):
+    hyperopt_ranges: dict | None = None
+    has_catboost = any(
+        m in selected for m in ("catboost", "catboost_per_panel", "catboost_clustered")
+    )
+    if has_catboost:
         with st.expander("Настройки CatBoost (общие для всех вариантов)"):
-            cb_iterations = st.number_input(
-                "iterations",
-                min_value=50,
-                max_value=5000,
-                step=50,
-                value=st.session_state.get("cb_iterations", 1000),
-                key="cb_iterations",
-            )
-            cb_lr = st.number_input(
-                "learning_rate",
-                min_value=0.001,
-                max_value=1.0,
-                step=0.005,
-                format="%.3f",
-                value=st.session_state.get("cb_lr", 0.03),
-                key="cb_lr",
-            )
-            cb_depth = st.number_input(
-                "depth",
-                min_value=2,
-                max_value=12,
-                step=1,
-                value=st.session_state.get("cb_depth", 6),
-                key="cb_depth",
-            )
-            st.caption("При hyperopt=True Optuna перезапишет эти параметры")
+            if use_hyperopt:
+                st.markdown("**Диапазоны поиска Optuna**")
+                col_iter, col_lr, col_depth = st.columns(3)
+                with col_iter:
+                    iter_range = st.slider(
+                        "iterations",
+                        min_value=50,
+                        max_value=3000,
+                        value=st.session_state.get("hp_iter_range", (200, 1000)),
+                        step=50,
+                        key="hp_iter_range",
+                    )
+                with col_lr:
+                    lr_range = st.slider(
+                        "learning_rate",
+                        min_value=0.001,
+                        max_value=1.0,
+                        value=st.session_state.get("hp_lr_range", (0.01, 0.3)),
+                        step=0.005,
+                        format="%.3f",
+                        key="hp_lr_range",
+                    )
+                with col_depth:
+                    depth_range = st.slider(
+                        "depth",
+                        min_value=1,
+                        max_value=12,
+                        value=st.session_state.get("hp_depth_range", (3, 8)),
+                        step=1,
+                        key="hp_depth_range",
+                    )
+                col_l2, col_sub = st.columns(2)
+                with col_l2:
+                    l2_range = st.slider(
+                        "l2_leaf_reg",
+                        min_value=0.1,
+                        max_value=100.0,
+                        value=st.session_state.get("hp_l2_range", (1.0, 50.0)),
+                        step=0.5,
+                        key="hp_l2_range",
+                    )
+                with col_sub:
+                    sub_range = st.slider(
+                        "subsample",
+                        min_value=0.1,
+                        max_value=1.0,
+                        value=st.session_state.get("hp_sub_range", (0.6, 1.0)),
+                        step=0.05,
+                        key="hp_sub_range",
+                    )
+                hyperopt_ranges = {
+                    "iterations": {
+                        "type": "int",
+                        "low": iter_range[0],
+                        "high": iter_range[1],
+                        "step": 50,
+                    },
+                    "learning_rate": {
+                        "type": "float",
+                        "low": lr_range[0],
+                        "high": lr_range[1],
+                        "log": True,
+                    },
+                    "depth": {"type": "int", "low": depth_range[0], "high": depth_range[1]},
+                    "l2_leaf_reg": {
+                        "type": "float",
+                        "low": l2_range[0],
+                        "high": l2_range[1],
+                        "log": True,
+                    },
+                    "subsample": {"type": "float", "low": sub_range[0], "high": sub_range[1]},
+                }
+            else:
+                cb_iterations = st.number_input(
+                    "iterations",
+                    min_value=50,
+                    max_value=5000,
+                    step=50,
+                    value=st.session_state.get("cb_iterations", 1000),
+                    key="cb_iterations",
+                )
+                cb_lr = st.number_input(
+                    "learning_rate",
+                    min_value=0.001,
+                    max_value=1.0,
+                    step=0.005,
+                    format="%.3f",
+                    value=st.session_state.get("cb_lr", 0.03),
+                    key="cb_lr",
+                )
+                cb_depth = st.number_input(
+                    "depth",
+                    min_value=2,
+                    max_value=12,
+                    step=1,
+                    value=st.session_state.get("cb_depth", 6),
+                    key="cb_depth",
+                )
             st.markdown("**Расширенные признаки**")
             col_f1, col_f2 = st.columns(2)
             with col_f1:
@@ -276,56 +385,13 @@ def _render_config(has_clustering: bool = False) -> dict:
                 help="approximation=True ускоряет подбор порядков ARIMA, рекомендуется для больших датасетов",
             )
 
-    col1, col2 = st.columns(2)
-    with col1:
-        metric = st.selectbox("Метрика отбора", _METRICS, key="automl_metric")
-    with col2:
-        use_hyperopt = st.toggle("Hyperopt (Optuna)", value=False, key="automl_hyperopt")
-
-    n_trials = 30
-    hyperopt_timeout = None
-    if use_hyperopt:
-        col_trials, col_timeout = st.columns(2)
-        with col_trials:
-            n_trials = st.number_input(
-                "n_trials",
-                min_value=1,
-                max_value=500,
-                step=5,
-                value=st.session_state.get("automl_n_trials", 30),
-                key="automl_n_trials",
-                help="Количество попыток Optuna",
-            )
-        with col_timeout:
-            use_timeout = st.checkbox(
-                "Таймаут (мин)",
-                value=st.session_state.get("automl_hyperopt_timeout") is not None,
-                key="automl_use_timeout",
-            )
-            if use_timeout:
-                timeout_min = st.number_input(
-                    "минут",
-                    min_value=1,
-                    max_value=120,
-                    step=1,
-                    value=max(1, (st.session_state.get("automl_hyperopt_timeout") or 300) // 60),
-                    key="automl_timeout_min",
-                    label_visibility="collapsed",
-                )
-                hyperopt_timeout = int(timeout_min) * 60
-                st.session_state["automl_hyperopt_timeout"] = hyperopt_timeout
-            else:
-                st.session_state["automl_hyperopt_timeout"] = None
-        st.caption(
-            "Optuna остановится при достижении n_trials **или** таймаута (что наступит раньше)"
-        )
-
     return {
         "models": selected,
         "selection_metric": metric,
         "use_hyperopt": use_hyperopt,
         "n_trials": int(n_trials),
         "hyperopt_timeout": hyperopt_timeout,
+        "hyperopt_ranges": hyperopt_ranges,
         "catboost_params": {
             "iterations": int(cb_iterations),
             "learning_rate": float(cb_lr),
@@ -426,6 +492,36 @@ def _render_progress(project_id: str, job_id: str, models: list[str]) -> bool:
         ),
         None,
     )
+
+    # Hyperopt статус
+    hyperopt_started = any(e.get("type") == "hyperopt_start" for e in events)
+    hyperopt_finished = any(e.get("type") in ("hyperopt_done", "hyperopt_failed") for e in events)
+    hyperopt_failed = any(e.get("type") == "hyperopt_failed" for e in events)
+
+    if hyperopt_started:
+        trial_events = [e for e in events if e.get("type") == "hyperopt_trial"]
+        last_trial = trial_events[-1] if trial_events else None
+
+        if not hyperopt_finished:
+            n_trials_total = next(
+                (e.get("n_trials", "?") for e in events if e.get("type") == "hyperopt_start"),
+                "?",
+            )
+            if last_trial:
+                t_n = last_trial.get("trial", "?")
+                t_best = last_trial.get("best", "?")
+                hp_pct = int(int(t_n) / int(n_trials_total) * 100) if n_trials_total != "?" else 0
+                st.progress(
+                    hp_pct / 100,
+                    text=f"Hyperopt: trial {t_n}/{n_trials_total}, best MAPE: {t_best}",
+                )
+            else:
+                st.progress(0, text=f"Hyperopt: запуск ({n_trials_total} trials)...")
+        elif hyperopt_failed:
+            st.warning("Hyperopt завершился с ошибкой — используются параметры по умолчанию")
+        else:
+            best_val = last_trial.get("best", "?") if last_trial else "?"
+            st.success(f"Hyperopt: лучший MAPE = {best_val}")
 
     n_done = len(finished_models)
     n_total = len(models)
@@ -652,6 +748,103 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
                 loss_hist = [(int(ep), float(lv)) for ep, lv in mr["loss_history"]]
                 best = min(lv for _, lv in loss_hist)
                 _render_loss_chart(loss_hist, best, chart_key=f"loss_{mr['name']}")
+
+    # Hyperopt результаты
+    hp_data = automl_result.get("hyperopt")
+    if hp_data and hp_data.get("trials"):
+        st.divider()
+        st.markdown("**Hyperopt (Optuna)**")
+        _render_hyperopt_results(hp_data)
+
+
+def _render_hyperopt_results(hp_data: dict) -> None:
+    """Визуализация результатов Optuna."""
+    trials = hp_data["trials"]
+    best_value = hp_data["best_value"]
+    best_params = hp_data["best_params"]
+
+    # Лучшие параметры
+    st.success(f"Лучший Val MAPE: **{best_value:.4f}**")
+    param_cols = st.columns(len(best_params))
+    for col, (k, v) in zip(param_cols, best_params.items()):
+        if k == "verbose":
+            continue
+        fmt = f"{v:.4f}" if isinstance(v, float) else str(v)
+        col.metric(k, fmt)
+
+    trials_df = pd.DataFrame(trials)
+
+    col_hist, col_param = st.columns(2)
+
+    with col_hist:
+        # Optimization history
+        st.markdown("**История оптимизации**")
+        best_so_far = []
+        running_best = float("inf")
+        for _, row in trials_df.iterrows():
+            running_best = min(running_best, row["value"])
+            best_so_far.append(running_best)
+        trials_df["best_so_far"] = best_so_far
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=trials_df["number"],
+                y=trials_df["value"],
+                mode="markers",
+                name="Trial MAPE",
+                marker=dict(color="#E67E22", size=6, opacity=0.6),
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=trials_df["number"],
+                y=trials_df["best_so_far"],
+                mode="lines",
+                name="Best MAPE",
+                line=dict(color="#2ECC71", width=2),
+            )
+        )
+        fig.update_layout(
+            height=300,
+            margin=dict(l=0, r=0, t=10, b=0),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font_color="#FAFAFA",
+            xaxis=dict(title="Trial", showgrid=False),
+            yaxis=dict(title="Val MAPE", showgrid=True, gridcolor="#333"),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig, width="stretch", key="hyperopt_history")
+
+    with col_param:
+        # Важность параметров
+        imp = hp_data.get("param_importance", {})
+        if imp:
+            st.markdown("**Важность параметров**")
+            imp_df = pd.DataFrame(
+                sorted(imp.items(), key=lambda x: x[1], reverse=True),
+                columns=["Параметр", "Важность"],
+            )
+            fig = px.bar(
+                imp_df,
+                x="Важность",
+                y="Параметр",
+                orientation="h",
+                color="Важность",
+                color_continuous_scale="Blues",
+            )
+            fig.update_layout(
+                height=300,
+                margin=dict(l=0, r=0, t=10, b=0),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="#FAFAFA",
+                yaxis=dict(autorange="reversed"),
+                coloraxis_showscale=False,
+                showlegend=False,
+            )
+            st.plotly_chart(fig, width="stretch", key="hyperopt_importance")
 
 
 def _render_panel_chart(
@@ -954,6 +1147,7 @@ def render() -> None:
                     feature_params=cfg["feature_params"],
                     chronos_params=cfg["chronos_params"],
                     ts2vec_params=cfg["ts2vec_params"],
+                    hyperopt_ranges=cfg.get("hyperopt_ranges"),
                 )
             except Exception as e:
                 st.error(f"Ошибка запуска: {e}")
