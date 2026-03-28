@@ -125,26 +125,21 @@
 - Сравнить метрики в таблице (val MAPE, test MAPE, время обучения)
 - Зафиксировать best model и типичные значения MAPE
 
-### 12. Кросс-валидация итоговой модели ✅ РЕАЛИЗОВАНО (WIP — требует проверки)
+### 12. Кросс-валидация итоговой модели ✅ ГОТОВО
 - `generate_expanding_cv_folds()` в `src/model_selection.py`
 - Celery task `run_cross_validation` в `worker/tasks/cross_validation.py`
 - API: `run_cv`, `cv_progress`, `cv_result` в `api/routers/forecast.py`
 - UI: секция на странице Forecast — выбор модели, кол-во фолдов, прогресс, таблица + box plot
 
-**Требует проверки:**
-- [ ] Запустить CV через UI на реальных данных (seasonal_naive, 3 фолда)
-- [ ] Проверить прогресс-бар (fold_start/fold_done корректно отображаются)
-- [ ] Проверить что результаты (метрики, таблица, box plot) рендерятся корректно
-- [ ] Проверить CV с CatBoost моделью
-- [ ] Проверить перезапуск CV с другой моделью
-
 ---
 
 ## 🟢 Качество и UX
 
-### 7. Проверить Optuna (hyperopt) в продакшне
-- [ ] Убедиться что `tune_catboost` не падает при `use_hyperopt=True` через реальный UI (end-to-end)
-- [ ] Проверить что прогресс в UI не зависает пока идёт hyperopt (он блокирующий внутри worker'а — таймаут 300s может не хватить при большом n_trials)
+### 7. Optuna (hyperopt) ✅ ГОТОВО
+- Прогресс по trial'ам в реальном времени (trial N/M, best MAPE)
+- `HyperoptResult` — лучшие параметры, история trial'ов
+- Визуализация: optimization history + parallel coordinates
+- Результаты сохраняются в job result и отображаются на экране AutoML
 
 ### 8. Настройки для AutoETS/AutoTheta
 **Отсутствуют настройки для:**

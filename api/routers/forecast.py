@@ -245,7 +245,7 @@ async def run_cv(
         config.model_type,
         config.n_folds,
         automl_info.get("ts", {}).get("freq"),
-        None,  # catboost_params (use defaults)
+        automl_info.get("hyperopt", {}).get("best_params"),
         automl_info.get("feature_params"),
         automl_info.get("chronos_params"),
         automl_info.get("ts2vec_params"),

@@ -209,6 +209,7 @@ def run_automl(
     feature_params: dict | None = None,
     chronos_params: dict | None = None,
     ts2vec_params: dict | None = None,
+    hyperopt_ranges: dict | None = None,
 ) -> dict:
     """Запускает AutoML: обучает модели на отфильтрованных панелях, выбирает лучшую."""
     from api.models import Job
@@ -282,11 +283,10 @@ def run_automl(
                     )
                     logger.info("Загружены cluster_labels: %d панелей", len(cluster_labels))
                 else:
-                    logger.warning(
-                        "clustered-модель запрошена, но результатов кластеризации нет"
-                    )
+                    logger.warning("clustered-модель запрошена, но результатов кластеризации нет")
                     models = [m for m in models if m not in _clustered_models]
 
+            hyperopt_data: dict | None = None
             if use_hyperopt and "catboost" in models:
                 timeout_label = f", timeout {hyperopt_timeout}s" if hyperopt_timeout else ""
                 _add_step(
@@ -296,11 +296,36 @@ def run_automl(
                     f"Hyperopt CatBoost ({n_trials} trials{timeout_label})",
                 )
                 redis_client.xadd(stream_key, {"type": "hyperopt_start", "n_trials": str(n_trials)})
-                try:
-                    best_cb_params = tune_catboost(
-                        splits, settings, n_trials=n_trials, timeout=hyperopt_timeout
+
+                def _on_trial(trial_n: int, total: int, value: float, best: float) -> None:
+                    redis_client.xadd(
+                        stream_key,
+                        {
+                            "type": "hyperopt_trial",
+                            "trial": str(trial_n),
+                            "total": str(total),
+                            "value": f"{value:.6f}",
+                            "best": f"{best:.6f}",
+                        },
                     )
-                    catboost_params = best_cb_params.model_dump()
+
+                try:
+                    hp_result = tune_catboost(
+                        splits,
+                        settings,
+                        n_trials=n_trials,
+                        timeout=hyperopt_timeout,
+                        on_trial_done=_on_trial,
+                        search_space=hyperopt_ranges,
+                    )
+                    catboost_params = hp_result.best_params.model_dump()
+                    hyperopt_data = {
+                        "best_value": round(hp_result.best_value, 6),
+                        "best_params": catboost_params,
+                        "trials": hp_result.trials,
+                        "param_names": hp_result.param_names,
+                        "param_importance": hp_result.param_importance,
+                    }
                     redis_client.xadd(stream_key, {"type": "hyperopt_done"})
                     logger.info("Hyperopt завершён: %s", catboost_params)
                 except Exception:
@@ -456,6 +481,7 @@ def run_automl(
                     "feature_params": feature_params or {},
                     "chronos_params": chronos_params or {},
                     "ts2vec_params": ts2vec_params or {},
+                    "hyperopt": hyperopt_data,
                 },
             }
 

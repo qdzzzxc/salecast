@@ -134,6 +134,7 @@ class AutoMLRunConfig(BaseModel):
     ts2vec_params: TS2VecRunParams = TS2VecRunParams()
     autoarima_approximation: bool = True
     feature_params: FeatureParams = FeatureParams()
+    hyperopt_ranges: dict | None = None
 
 
 @router.post("/{project_id}/run_automl", response_model=JobSchema)
@@ -187,6 +188,7 @@ async def run_automl(
         config.feature_params.model_dump(),
         config.chronos_params.model_dump(),
         config.ts2vec_params.model_dump(),
+        config.hyperopt_ranges,
     )
 
     return _to_job_schema(job)
