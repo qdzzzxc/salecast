@@ -419,33 +419,57 @@ def _render_config(has_clustering: bool = False) -> dict:
 
 
 def _render_loss_chart(
-    loss_history: list[tuple[int, float]],
+    loss_history: list[tuple[int, float]] | None = None,
     best_loss: float | None = None,
     chart_key: str = "ts2vec_loss_chart",
+    loss_histories: list[list[tuple[int, float]]] | None = None,
 ) -> None:
     """Мини-график loss по эпохам для моделей с историей обучения."""
-    epochs = [e for e, _ in loss_history]
-    losses = [l for _, l in loss_history]  # noqa: E741
     fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=epochs,
-            y=losses,
-            mode="lines",
-            name="Loss",
-            line=dict(color="#E67E22", width=1.5),
-        )
-    )
-    if best_loss is not None:
+
+    if loss_histories:
+        # Несколько трасс — по одной на кластер
+        colors = [
+            "#E67E22", "#3498DB", "#2ECC71", "#E74C3C", "#9B59B6",
+            "#1ABC9C", "#F39C12", "#D35400", "#2980B9", "#27AE60",
+        ]
+        for i, hist in enumerate(loss_histories):
+            epochs = [e for e, _ in hist]
+            losses = [lv for _, lv in hist]
+            fig.add_trace(
+                go.Scatter(
+                    x=epochs,
+                    y=losses,
+                    mode="lines",
+                    name=f"Кластер {i + 1}",
+                    line=dict(color=colors[i % len(colors)], width=1.5),
+                )
+            )
+    elif loss_history:
+        epochs = [e for e, _ in loss_history]
+        losses = [lv for _, lv in loss_history]
         fig.add_trace(
             go.Scatter(
-                x=[epochs[0], epochs[-1]],
-                y=[best_loss, best_loss],
+                x=epochs,
+                y=losses,
                 mode="lines",
-                name=f"Best: {best_loss:.4f}",
-                line=dict(color="#2ECC71", width=1.5, dash="dash"),
+                name="Loss",
+                line=dict(color="#E67E22", width=1.5),
             )
         )
+        if best_loss is not None:
+            fig.add_trace(
+                go.Scatter(
+                    x=[epochs[0], epochs[-1]],
+                    y=[best_loss, best_loss],
+                    mode="lines",
+                    name=f"Best: {best_loss:.4f}",
+                    line=dict(color="#2ECC71", width=1.5, dash="dash"),
+                )
+            )
+    else:
+        return
+
     fig.update_layout(
         height=200,
         margin=dict(l=0, r=0, t=10, b=0),
@@ -557,7 +581,9 @@ def _render_progress(project_id: str, job_id: str, models: list[str]) -> bool:
                     st.markdown(f"⏳ {label}{suffix}")
 
                 # График loss для моделей с историей обучения (TS2Vec)
-                loss_history = [
+                # Не сортируем глобально — сохраняем порядок прихода событий,
+                # разбиваем на runs по сбросу эпохи (каждый кластер начинает с 0)
+                raw_loss = [
                     (int(e["epoch"]), float(e["loss"]))
                     for e in events
                     if e.get("type") == "model_progress"
@@ -565,9 +591,22 @@ def _render_progress(project_id: str, job_id: str, models: list[str]) -> bool:
                     and e.get("loss")
                     and e.get("epoch")
                 ]
-                if len(loss_history) >= 2:
-                    best = last_progress.get("best_loss") if last_progress else None
-                    _render_loss_chart(loss_history, float(best) if best else None)
+                if len(raw_loss) >= 2:
+                    # Разбиваем на runs: новый run начинается когда epoch <= предыдущей
+                    runs: list[list[tuple[int, float]]] = []
+                    current_run: list[tuple[int, float]] = [raw_loss[0]]
+                    for ep, lv in raw_loss[1:]:
+                        if ep <= current_run[-1][0]:
+                            runs.append(current_run)
+                            current_run = []
+                        current_run.append((ep, lv))
+                    runs.append(current_run)
+
+                    if len(runs) == 1:
+                        best = last_progress.get("best_loss") if last_progress else None
+                        _render_loss_chart(runs[0], float(best) if best else None)
+                    else:
+                        _render_loss_chart(loss_histories=runs)
 
             with col_skip:
                 if st.button("Пропустить", key=f"skip_{model}", width="stretch"):
@@ -738,16 +777,24 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
                 st.plotly_chart(fig, width="stretch")
 
     # Loss chart для моделей с историей обучения (TS2Vec)
-    loss_models = [mr for mr in sorted_mrs if mr.get("loss_history")]
+    loss_models = [mr for mr in sorted_mrs if mr.get("loss_history") or mr.get("loss_histories")]
     if loss_models:
         st.divider()
         st.markdown("**Loss обучения**")
         for mr in loss_models:
             label = _MODEL_LABELS.get(mr["name"], mr["name"])
             with st.expander(f"{label}", expanded=len(loss_models) == 1):
-                loss_hist = [(int(ep), float(lv)) for ep, lv in mr["loss_history"]]
-                best = min(lv for _, lv in loss_hist)
-                _render_loss_chart(loss_hist, best, chart_key=f"loss_{mr['name']}")
+                if mr.get("loss_histories"):
+                    hists = [
+                        [(int(ep), float(lv)) for ep, lv in h] for h in mr["loss_histories"]
+                    ]
+                    _render_loss_chart(
+                        loss_histories=hists, chart_key=f"loss_{mr['name']}"
+                    )
+                else:
+                    loss_hist = [(int(ep), float(lv)) for ep, lv in mr["loss_history"]]
+                    best = min(lv for _, lv in loss_hist)
+                    _render_loss_chart(loss_hist, best, chart_key=f"loss_{mr['name']}")
 
     # Hyperopt результаты
     hp_data = automl_result.get("hyperopt")

@@ -306,6 +306,7 @@ class ModelResult:
     params: BaseModel
     feature_importance: list[tuple[str, float]] | None = None
     loss_history: list[tuple[int, float]] | None = None
+    loss_histories: list[list[tuple[int, float]]] | None = None
 
 
 @dataclass

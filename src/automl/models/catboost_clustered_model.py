@@ -68,7 +68,7 @@ class CatBoostClusteredForecastModel(BaseForecastModel):
             "val": [],
             "test": [],
         }
-        importance_acc: dict[str, list[float]] = {}
+        importance_acc: dict[str, list[tuple[float, int]]] = {}  # {fname: [(imp, n_panels)]}
 
         for i, cluster_id in enumerate(clusters):
             if cancel_fn and cancel_fn():
@@ -127,8 +127,9 @@ class CatBoostClusteredForecastModel(BaseForecastModel):
                 settings=settings,
             )
 
+            n_panels = len(cluster_panels)
             for fname, imp in zip(model.feature_names_, model.get_feature_importance().tolist()):
-                importance_acc.setdefault(fname, []).append(imp)
+                importance_acc.setdefault(fname, []).append((imp, n_panels))
 
             for split_name, split_df in ready.splits:
                 if split_df is None or len(split_df) == 0:
@@ -152,11 +153,16 @@ class CatBoostClusteredForecastModel(BaseForecastModel):
         )
         log_evaluation_results(evaluation)
 
-        feature_importance = sorted(
-            [(f, sum(vs) / len(vs)) for f, vs in importance_acc.items()],
-            key=lambda x: x[1],
-            reverse=True,
-        )
+        # Взвешенное среднее по размеру кластера
+        feature_importance = []
+        for fname, entries in importance_acc.items():
+            total_panels = sum(n for _, n in entries)
+            if total_panels > 0:
+                weighted = sum(imp * n for imp, n in entries) / total_panels
+            else:
+                weighted = 0.0
+            feature_importance.append((fname, weighted))
+        feature_importance.sort(key=lambda x: x[1], reverse=True)
 
         if progress_fn:
             progress_fn("готово", 100.0)

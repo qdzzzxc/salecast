@@ -47,17 +47,23 @@
 - GPU автодетекция (cuda/cpu), подпись "GPU" в UI
 - `docker-compose.gpu.yml` для проброса GPU в worker
 
-### 8. AutoGluon
+### 8. PatchTST
+Transformer для временных рядов (channel-independent patching). State-of-the-art на многих бенчмарках.
+**План:**
+- Реализовать `PatchTSTForecastModel` в `src/automl/models/patchtst_model.py`
+- Использовать реализацию из `neuralforecast` (Nixtla) или HuggingFace
+- GPU/CPU автодетекция, прогресс по эпохам (как TS2Vec)
+- Интеграция в selector, run_automl, forecast, UI
+
+### 9. AutoGluon
 Исследование: запустить `TimeSeriesPredictor` на демо-данных, оценить качество vs размер (~2–4 ГБ) vs скорость.
 Откладываем до завершения остальных моделей.
 
-### 9. Feature importance ✅ ГОТОВО (с оговорками)
+### 9. Feature importance ✅ ГОТОВО
 - bar chart top-20 для всех CatBoost-моделей в UI AutoML
-
-**Известные проблемы кластерных моделей:**
-- **ts2vec_clustered (критично):** `ts2vec_emb_N` в разных кластерах — разные фичи (разные энкодеры), но усредняются как одна. Семантически бессмысленно. Варианты: не показывать embedding-фичи, показывать только base-фичи, или показывать per-cluster.
-- **catboost_clustered:** если фича есть только в части кластеров, её importance завышен (делится на число кластеров где она есть, а не на общее). Фикс: делить на `n_clusters`, а не на `len(vs)`.
-- **Нет взвешивания:** простое среднее вместо взвешенного по размеру кластера или качеству модели.
+- Кластерные модели: взвешенное среднее по размеру кластера (вместо простого)
+- ts2vec_clustered: embedding-фичи исключены (разные энкодеры → несопоставимы)
+- catboost_clustered: importance корректно нормализован по всем кластерам
 
 ### 10. MSTL-сезонность ✅ ГОТОВО
 - Декомпозиция, признак CatBoost, визуализация на экране Качество

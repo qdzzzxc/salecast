@@ -461,6 +461,7 @@ def run_automl(
                     "predictions_key": pred_keys.get(r.name),
                     "feature_importance": r.feature_importance,
                     "loss_history": r.loss_history,
+                    "loss_histories": r.loss_histories,
                 }
                 for r in all_results
             ]

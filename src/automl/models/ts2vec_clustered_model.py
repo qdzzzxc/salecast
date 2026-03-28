@@ -63,7 +63,8 @@ class TS2VecClusteredForecastModel(BaseForecastModel):
             "val": [],
             "test": [],
         }
-        importance_acc: dict[str, list[float]] = {}
+        importance_acc: dict[str, list[tuple[float, int]]] = {}  # {fname: [(imp, n_panels)]}
+        all_loss_histories: list[list[tuple[int, float]]] = []
 
         for ci, cluster_id in enumerate(clusters):
             if cancel_fn and cancel_fn():
@@ -104,7 +105,24 @@ class TS2VecClusteredForecastModel(BaseForecastModel):
                     cluster_pct_base + 2,
                 )
 
-            ts2vec_model, _ = _train_ts2vec_encoder(train_array, self.params, device)
+            # Оборачиваем progress_fn для передачи эпох с loss в Redis Stream
+            def _cluster_progress(
+                msg: str,
+                pct: float | None = None,
+                _ci: int = ci,
+                _n: int = n_clusters,
+                _base: float = cluster_pct_base,
+            ) -> None:
+                if progress_fn:
+                    # Перемапируем прогресс внутри кластера на общий диапазон
+                    overall_pct = _base + (pct or 0) / _n if pct is not None else None
+                    progress_fn(msg, overall_pct)
+
+            ts2vec_model, cluster_loss = _train_ts2vec_encoder(
+                train_array, self.params, device, _cluster_progress if progress_fn else None
+            )
+            if cluster_loss:
+                all_loss_histories.append(cluster_loss)
 
             # Concat с _split колонкой
             _SPLIT_COL = "_split"
@@ -153,11 +171,18 @@ class TS2VecClusteredForecastModel(BaseForecastModel):
             val_for_train = train_clean if val_feat is None else val_feat
             cb_model = train_catboost(train_clean, val_for_train, cb_params, settings)
 
-            # Feature importance
+            # Feature importance: embedding-фичи агрегируются в одну запись
+            n_panels = len(cluster_panels)
+            emb_imp_sum = 0.0
             for fname, imp in zip(
                 cb_model.feature_names_, cb_model.get_feature_importance().tolist()
             ):
-                importance_acc.setdefault(fname, []).append(imp)
+                if fname.startswith("ts2vec_emb_"):
+                    emb_imp_sum += imp
+                else:
+                    importance_acc.setdefault(fname, []).append((imp, n_panels))
+            if emb_imp_sum > 0:
+                importance_acc.setdefault("ts2vec_embeddings", []).append((emb_imp_sum, n_panels))
 
             # Predictions per split
             cluster_splits = Splits(train=train_feat, val=val_feat, test=test_feat)
@@ -184,11 +209,16 @@ class TS2VecClusteredForecastModel(BaseForecastModel):
         )
         log_evaluation_results(evaluation)
 
-        feature_importance = sorted(
-            [(f, sum(vs) / len(vs)) for f, vs in importance_acc.items()],
-            key=lambda x: x[1],
-            reverse=True,
-        )
+        # Взвешенное среднее по размеру кластера
+        feature_importance = []
+        for fname, entries in importance_acc.items():
+            total_panels = sum(n for _, n in entries)
+            if total_panels > 0:
+                weighted = sum(imp * n for imp, n in entries) / total_panels
+            else:
+                weighted = 0.0
+            feature_importance.append((fname, weighted))
+        feature_importance.sort(key=lambda x: x[1], reverse=True)
 
         if progress_fn:
             progress_fn("готово", 100.0)
@@ -198,6 +228,7 @@ class TS2VecClusteredForecastModel(BaseForecastModel):
             evaluation=evaluation,
             params=self.params,
             feature_importance=feature_importance,
+            loss_histories=all_loss_histories if all_loss_histories else None,
         )
 
     def forecast_future(
