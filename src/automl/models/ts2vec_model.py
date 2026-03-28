@@ -108,9 +108,11 @@ def _train_ts2vec_encoder(
 
     best_state = None
     best_loss = float("inf")
+    loss_history: list[tuple[int, float]] = []
 
     def _epoch_callback(m, epoch_loss):
         nonlocal best_state, best_loss
+        loss_history.append((m.n_epochs, epoch_loss))
         if epoch_loss < best_loss:
             best_loss = epoch_loss
             best_state = deepcopy(m._net.state_dict())
@@ -132,7 +134,7 @@ def _train_ts2vec_encoder(
     if best_state is not None:
         model._net.load_state_dict(best_state)
 
-    return model
+    return model, loss_history
 
 
 class TS2VecForecastModel(BaseForecastModel):
@@ -170,7 +172,7 @@ class TS2VecForecastModel(BaseForecastModel):
         if train_array.shape[0] == 0:
             raise ValueError("Нет данных для обучения TS2Vec")
 
-        ts2vec_model = _train_ts2vec_encoder(
+        ts2vec_model, loss_hist = _train_ts2vec_encoder(
             train_array,
             self.params,
             device,
@@ -246,6 +248,7 @@ class TS2VecForecastModel(BaseForecastModel):
             evaluation=eval_results,
             params=self.params,
             feature_importance=importance[:20],
+            loss_history=loss_hist,
         )
 
     def forecast_future(
@@ -267,7 +270,7 @@ class TS2VecForecastModel(BaseForecastModel):
         device = _get_device()
 
         train_array, _ = _reshape_panel_to_3d(full_df, panel_col, target)
-        ts2vec_model = _train_ts2vec_encoder(train_array, self.params, device)
+        ts2vec_model, _ = _train_ts2vec_encoder(train_array, self.params, device)
 
         panel_embeddings = _encode_panels(ts2vec_model, full_df, panel_col, target)
 

@@ -305,6 +305,7 @@ class ModelResult:
     evaluation: "EvaluationResults"
     params: BaseModel
     feature_importance: list[tuple[str, float]] | None = None
+    loss_history: list[tuple[int, float]] | None = None
 
 
 @dataclass

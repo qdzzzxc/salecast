@@ -104,7 +104,7 @@ class TS2VecClusteredForecastModel(BaseForecastModel):
                     cluster_pct_base + 2,
                 )
 
-            ts2vec_model = _train_ts2vec_encoder(train_array, self.params, device)
+            ts2vec_model, _ = _train_ts2vec_encoder(train_array, self.params, device)
 
             # Concat с _split колонкой
             _SPLIT_COL = "_split"
@@ -237,7 +237,7 @@ class TS2VecClusteredForecastModel(BaseForecastModel):
             train_array, _ = _reshape_panel_to_3d(cluster_df, panel_col, target)
             if train_array.shape[0] == 0:
                 continue
-            ts2vec_model = _train_ts2vec_encoder(train_array, self.params, device)
+            ts2vec_model, _ = _train_ts2vec_encoder(train_array, self.params, device)
             panel_embeddings = _encode_panels(ts2vec_model, cluster_df, panel_col, target)
 
             cluster_with_emb = _add_embedding_features(

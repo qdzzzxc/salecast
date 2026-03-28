@@ -353,7 +353,9 @@ def _render_config(has_clustering: bool = False) -> dict:
 
 
 def _render_loss_chart(
-    loss_history: list[tuple[int, float]], best_loss: float | None = None
+    loss_history: list[tuple[int, float]],
+    best_loss: float | None = None,
+    chart_key: str = "ts2vec_loss_chart",
 ) -> None:
     """Мини-график loss по эпохам для моделей с историей обучения."""
     epochs = [e for e, _ in loss_history]
@@ -369,25 +371,27 @@ def _render_loss_chart(
         )
     )
     if best_loss is not None:
-        fig.add_hline(
-            y=best_loss,
-            line_dash="dash",
-            line_color="#2ECC71",
-            annotation_text=f"best: {best_loss:.4f}",
-            annotation_position="top right",
-            annotation_font_color="#2ECC71",
+        fig.add_trace(
+            go.Scatter(
+                x=[epochs[0], epochs[-1]],
+                y=[best_loss, best_loss],
+                mode="lines",
+                name=f"Best: {best_loss:.4f}",
+                line=dict(color="#2ECC71", width=1.5, dash="dash"),
+            )
         )
     fig.update_layout(
-        height=150,
+        height=200,
         margin=dict(l=0, r=0, t=10, b=0),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font_color="#FAFAFA",
         xaxis=dict(title="Epoch", showgrid=False),
-        yaxis=dict(title="Loss", showgrid=True, gridcolor="#333"),
-        showlegend=False,
+        yaxis=dict(title="Contrastive Loss", showgrid=True, gridcolor="#333"),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
-    st.plotly_chart(fig, width="stretch", key="ts2vec_loss_chart")
+    st.plotly_chart(fig, width="stretch", key=chart_key)
 
 
 def _render_progress(project_id: str, job_id: str, models: list[str]) -> bool:
@@ -636,6 +640,18 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
                     showlegend=False,
                 )
                 st.plotly_chart(fig, width="stretch")
+
+    # Loss chart для моделей с историей обучения (TS2Vec)
+    loss_models = [mr for mr in sorted_mrs if mr.get("loss_history")]
+    if loss_models:
+        st.divider()
+        st.markdown("**Loss обучения**")
+        for mr in loss_models:
+            label = _MODEL_LABELS.get(mr["name"], mr["name"])
+            with st.expander(f"{label}", expanded=len(loss_models) == 1):
+                loss_hist = [(int(ep), float(lv)) for ep, lv in mr["loss_history"]]
+                best = min(lv for _, lv in loss_hist)
+                _render_loss_chart(loss_hist, best, chart_key=f"loss_{mr['name']}")
 
 
 def _render_panel_chart(
