@@ -120,6 +120,15 @@ class TS2VecRunParams(BaseModel):
     batch_size: int = 16
 
 
+class PatchTSTRunParams(BaseModel):
+    """Параметры PatchTST для запуска AutoML."""
+
+    input_size: int = 24
+    max_steps: int = 200
+    hidden_size: int = 64
+    n_heads: int = 4
+
+
 class AutoMLRunConfig(BaseModel):
     """Конфигурация запуска AutoML."""
 
@@ -132,6 +141,7 @@ class AutoMLRunConfig(BaseModel):
     catboost_params: CatBoostRunParams = CatBoostRunParams()
     chronos_params: ChronosRunParams = ChronosRunParams()
     ts2vec_params: TS2VecRunParams = TS2VecRunParams()
+    patchtst_params: PatchTSTRunParams = PatchTSTRunParams()
     autoarima_approximation: bool = True
     feature_params: FeatureParams = FeatureParams()
     hyperopt_ranges: dict | None = None
@@ -188,6 +198,7 @@ async def run_automl(
         config.feature_params.model_dump(),
         config.chronos_params.model_dump(),
         config.ts2vec_params.model_dump(),
+        config.patchtst_params.model_dump(),
         config.hyperopt_ranges,
     )
 

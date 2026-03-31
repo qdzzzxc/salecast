@@ -7,6 +7,7 @@ from src.automl.config import AutoMLConfig
 from src.automl.models.catboost_clustered_model import CatBoostClusteredForecastModel
 from src.automl.models.catboost_model import CatBoostForecastModel, CatBoostPerPanelForecastModel
 from src.automl.models.chronos_model import ChronosForecastModel
+from src.automl.models.patchtst_model import PatchTSTForecastModel
 from src.automl.models.seasonal_naive_model import SeasonalNaiveForecastModel
 from src.automl.models.statsforecast_model import StatsForecastModel
 from src.automl.models.ts2vec_clustered_model import TS2VecClusteredForecastModel
@@ -105,6 +106,8 @@ def _build_model(
         return StatsForecastModel(model_type=model_type)
     if model_type == ModelType.chronos:
         return ChronosForecastModel()
+    if model_type == ModelType.patchtst:
+        return PatchTSTForecastModel()
     if model_type == ModelType.ts2vec:
         return TS2VecForecastModel()
     if model_type == ModelType.ts2vec_clustered:

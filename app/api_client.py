@@ -130,6 +130,7 @@ async def _run_automl(
     feature_params: dict | None = None,
     chronos_params: dict | None = None,
     ts2vec_params: dict | None = None,
+    patchtst_params: dict | None = None,
     hyperopt_ranges: dict | None = None,
 ) -> dict[str, Any]:
     """Запускает AutoML через API."""
@@ -152,6 +153,8 @@ async def _run_automl(
         payload["chronos_params"] = chronos_params
     if ts2vec_params is not None:
         payload["ts2vec_params"] = ts2vec_params
+    if patchtst_params is not None:
+        payload["patchtst_params"] = patchtst_params
     if hyperopt_ranges is not None:
         payload["hyperopt_ranges"] = hyperopt_ranges
     async with aiohttp.ClientSession() as session:
@@ -176,6 +179,7 @@ def run_automl(
     feature_params: dict | None = None,
     chronos_params: dict | None = None,
     ts2vec_params: dict | None = None,
+    patchtst_params: dict | None = None,
     hyperopt_ranges: dict | None = None,
 ) -> dict[str, Any]:
     """Запускает AutoML (синхронная обёртка)."""
@@ -193,6 +197,7 @@ def run_automl(
             feature_params,
             chronos_params,
             ts2vec_params,
+            patchtst_params,
             hyperopt_ranges,
         )
     )

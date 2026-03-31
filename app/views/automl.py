@@ -44,6 +44,7 @@ _MODEL_LABELS = {
     ModelType.chronos: "Chronos-2",
     ModelType.ts2vec: "TS2Vec + CatBoost",
     ModelType.ts2vec_clustered: "TS2Vec clustered",
+    ModelType.patchtst: "PatchTST",
 }
 _MODEL_COLORS = {
     ModelType.seasonal_naive: "#4CAF50",
@@ -57,14 +58,16 @@ _MODEL_COLORS = {
     ModelType.chronos: "#1ABC9C",
     ModelType.ts2vec: "#E67E22",
     ModelType.ts2vec_clustered: "#D35400",
+    ModelType.patchtst: "#5DADE2",
 }
-_GPU_MODELS = {ModelType.chronos, ModelType.ts2vec, ModelType.ts2vec_clustered}
+_GPU_MODELS = {ModelType.chronos, ModelType.ts2vec, ModelType.ts2vec_clustered, ModelType.patchtst}
 _MODEL_CAPTIONS: dict[ModelType, str] = {
     ModelType.catboost_per_panel: "Медленно",
     ModelType.mstl: "Декомпозиция",
     ModelType.chronos: "Zero-shot, GPU",
     ModelType.ts2vec: "Encoder + CatBoost, GPU",
     ModelType.ts2vec_clustered: "Encoder + CatBoost на кластер, GPU",
+    ModelType.patchtst: "Трансформер, GPU",
 }
 _METRICS = [m.value for m in MetricType if m != MetricType.r2]
 
@@ -375,6 +378,45 @@ def _render_config(has_clustering: bool = False) -> dict:
                 key="ts2vec_batch_size",
             )
 
+    patchtst_input_size = 24
+    patchtst_max_steps = 200
+    patchtst_hidden_size = 64
+    patchtst_n_heads = 4
+    if ModelType.patchtst in selected:
+        with st.expander("Настройки PatchTST"):
+            patchtst_input_size = st.number_input(
+                "input_size (lookback)",
+                min_value=8,
+                max_value=256,
+                step=4,
+                value=st.session_state.get("patchtst_input_size", 24),
+                key="patchtst_input_size",
+            )
+            patchtst_max_steps = st.number_input(
+                "max_steps (шагов обучения)",
+                min_value=20,
+                max_value=2000,
+                step=20,
+                value=st.session_state.get("patchtst_max_steps", 200),
+                key="patchtst_max_steps",
+            )
+            patchtst_hidden_size = st.number_input(
+                "hidden_size",
+                min_value=16,
+                max_value=256,
+                step=16,
+                value=st.session_state.get("patchtst_hidden_size", 64),
+                key="patchtst_hidden_size",
+            )
+            patchtst_n_heads = st.number_input(
+                "n_heads",
+                min_value=1,
+                max_value=16,
+                step=1,
+                value=st.session_state.get("patchtst_n_heads", 4),
+                key="patchtst_n_heads",
+            )
+
     autoarima_approx = True
     if "autoarima" in selected:
         with st.expander("Настройки AutoARIMA"):
@@ -406,6 +448,12 @@ def _render_config(has_clustering: bool = False) -> dict:
             "output_dims": int(ts2vec_output_dims),
             "n_epochs": int(ts2vec_n_epochs),
             "batch_size": int(ts2vec_batch_size),
+        },
+        "patchtst_params": {
+            "input_size": int(patchtst_input_size),
+            "max_steps": int(patchtst_max_steps),
+            "hidden_size": int(patchtst_hidden_size),
+            "n_heads": int(patchtst_n_heads),
         },
         "autoarima_approximation": bool(autoarima_approx),
         "feature_params": {
@@ -1194,6 +1242,7 @@ def render() -> None:
                     feature_params=cfg["feature_params"],
                     chronos_params=cfg["chronos_params"],
                     ts2vec_params=cfg["ts2vec_params"],
+                    patchtst_params=cfg["patchtst_params"],
                     hyperopt_ranges=cfg.get("hyperopt_ranges"),
                 )
             except Exception as e:

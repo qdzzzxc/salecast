@@ -33,6 +33,7 @@ class ModelType(str, Enum):
     chronos = "chronos"
     ts2vec = "ts2vec"
     ts2vec_clustered = "ts2vec_clustered"
+    patchtst = "patchtst"
 
 
 QualityStatus: TypeAlias = Literal["green", "yellow", "red"]

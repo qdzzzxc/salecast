@@ -19,6 +19,7 @@ from src.automl.models import (
 )
 from src.automl.models.catboost_clustered_model import CatBoostClusteredForecastModel
 from src.automl.models.chronos_model import ChronosForecastModel, ChronosParameters
+from src.automl.models.patchtst_model import PatchTSTForecastModel, PatchTSTParameters
 from src.automl.models.ts2vec_clustered_model import TS2VecClusteredForecastModel
 from src.automl.models.ts2vec_model import TS2VecForecastModel, TS2VecParameters
 from src.automl.selector import _get_metric_value
@@ -133,6 +134,7 @@ def _build_model(
     cluster_labels: dict[str, int] | None = None,
     chronos_params: dict | None = None,
     ts2vec_params: dict | None = None,
+    patchtst_params: dict | None = None,
 ):
     """Создаёт модель заданного типа с переданными параметрами."""
     if model_type == ModelType.seasonal_naive:
@@ -157,6 +159,8 @@ def _build_model(
             cluster_labels=cluster_labels or {},
             params=TS2VecParameters(**(ts2vec_params or {})),
         )
+    if model_type == ModelType.patchtst:
+        return PatchTSTForecastModel(params=PatchTSTParameters(**(patchtst_params or {})))
     return StatsForecastModel(model_type=model_type)
 
 
@@ -209,6 +213,7 @@ def run_automl(
     feature_params: dict | None = None,
     chronos_params: dict | None = None,
     ts2vec_params: dict | None = None,
+    patchtst_params: dict | None = None,
     hyperopt_ranges: dict | None = None,
 ) -> dict:
     """Запускает AutoML: обучает модели на отфильтрованных панелях, выбирает лучшую."""
@@ -359,6 +364,7 @@ def run_automl(
                     cluster_labels,
                     chronos_params,
                     ts2vec_params,
+                    patchtst_params,
                 )
 
                 cancel_key = f"cancel:automl:{job_id}:{model_type}"
@@ -482,6 +488,7 @@ def run_automl(
                     "feature_params": feature_params or {},
                     "chronos_params": chronos_params or {},
                     "ts2vec_params": ts2vec_params or {},
+                    "patchtst_params": patchtst_params or {},
                     "hyperopt": hyperopt_data,
                 },
             }
