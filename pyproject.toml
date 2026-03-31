@@ -45,6 +45,7 @@ jupyter = [
 ]
 neural = [
     "chronos-forecasting>=2.0",
+    "neuralforecast>=3,<4",
 ]
 
 [dependency-groups]

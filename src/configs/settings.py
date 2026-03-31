@@ -100,7 +100,7 @@ class Settings(BaseModel):
     ts: TimeSeriesConfig = Field(
         default_factory=TimeSeriesConfig, description="Параметры временного ряда"
     )
-    random_state: int = Field(default=420, description="Seed для воспроизводимости")
+    random_state: int = Field(default=42, description="Seed для воспроизводимости")
     automl: AutoMLConfig = Field(
         default_factory=AutoMLConfig,
         description="Конфигурация AutoML",

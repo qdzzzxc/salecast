@@ -16,6 +16,7 @@ from src.automl.models import (
 )
 from src.automl.models.catboost_clustered_model import CatBoostClusteredForecastModel
 from src.automl.models.chronos_model import ChronosForecastModel, ChronosParameters
+from src.automl.models.patchtst_model import PatchTSTForecastModel, PatchTSTParameters
 from src.automl.models.ts2vec_clustered_model import TS2VecClusteredForecastModel
 from src.automl.models.ts2vec_model import TS2VecForecastModel, TS2VecParameters
 from src.automl.ts_utils import get_downstream_lags, infer_ts_config
@@ -105,6 +106,7 @@ def _build_model(
     cluster_labels: dict[str, int] | None = None,
     chronos_params: dict | None = None,
     ts2vec_params: dict | None = None,
+    patchtst_params: dict | None = None,
 ):
     """Создаёт экземпляр модели по имени."""
     mt = ModelType(model_name)
@@ -127,6 +129,8 @@ def _build_model(
             cluster_labels=cluster_labels or {},
             params=TS2VecParameters(**(ts2vec_params or {})),
         )
+    if mt == ModelType.patchtst:
+        return PatchTSTForecastModel(params=PatchTSTParameters(**(patchtst_params or {})))
     raise ValueError(f"Неизвестная модель: {model_name}")
 
 
@@ -151,6 +155,7 @@ def _run_ensemble_forecast(
 
     chronos_p = automl_info.get("chronos_params")
     ts2vec_p = automl_info.get("ts2vec_params")
+    patchtst_p = automl_info.get("patchtst_params")
 
     forecasts: dict[str, pd.DataFrame] = {}
     for i, m_name in enumerate(ens_models):
@@ -169,7 +174,7 @@ def _run_ensemble_forecast(
         )
 
         m_cluster = cluster_labels if m_name in ("catboost_clustered", "ts2vec_clustered") else None
-        model = _build_model(m_name, m_cluster, chronos_p, ts2vec_p)
+        model = _build_model(m_name, m_cluster, chronos_p, ts2vec_p, patchtst_p)
         fc_df = model.forecast_future(
             full_df=full_df,
             horizon=horizon,
@@ -310,7 +315,8 @@ def run_forecast(
                 _add_step(session, job, "forecasting", f"Прогноз {model_name} на {horizon} точек")
                 chronos_p = automl_info.get("chronos_params")
                 ts2vec_p = automl_info.get("ts2vec_params")
-                model = _build_model(model_name, cluster_labels, chronos_p, ts2vec_p)
+                patchtst_p = automl_info.get("patchtst_params")
+                model = _build_model(model_name, cluster_labels, chronos_p, ts2vec_p, patchtst_p)
                 forecast_df = model.forecast_future(
                     full_df=full_df,
                     horizon=horizon,
