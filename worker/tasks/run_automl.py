@@ -1,6 +1,7 @@
 import concurrent.futures
 import io
 import logging
+import math
 import os
 from datetime import datetime, timezone
 
@@ -28,6 +29,17 @@ from src.configs.settings import ColumnConfig, Settings
 from src.custom_types import CatBoostParameters, ModelType, Splits
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize(obj):
+    """Рекурсивно заменяет Infinity/NaN на None для совместимости с JSON/PostgreSQL."""
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    return obj
 
 _user = os.getenv("POSTGRES_USER", "sales_ts_prediction")
 _password = os.getenv("POSTGRES_PASSWORD", "sales_ts_prediction")
@@ -496,7 +508,7 @@ def run_automl(
             session.execute(
                 Job.__table__.update()
                 .where(Job.__table__.c.id == job.id)
-                .values(status="done", result=result_data, completed_at=datetime.now(timezone.utc))
+                .values(status="done", result=_sanitize(result_data), completed_at=datetime.now(timezone.utc))
             )
             session.commit()
             redis_client.xadd(stream_key, {"type": "completed"})
@@ -504,6 +516,7 @@ def run_automl(
 
         except Exception:
             logger.exception("AutoML job %s завершился с ошибкой", job_id)
+            session.rollback()
             session.execute(
                 Job.__table__.update()
                 .where(Job.__table__.c.id == job.id)

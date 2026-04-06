@@ -356,6 +356,7 @@ def run_forecast(
 
         except Exception:
             logger.exception("Forecast job %s failed", job_id)
+            session.rollback()
             session.execute(
                 Job.__table__.update()
                 .where(Job.__table__.c.id == job.id)
