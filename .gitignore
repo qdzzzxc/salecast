@@ -226,3 +226,5 @@ test_notebooks/
 lightning_logs
 tests/scripts/runs/
 example.sh
+papers/*
+plans/
