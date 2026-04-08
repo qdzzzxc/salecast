@@ -1,0 +1,67 @@
+# ============================================================
+# Salecast — конфиг AutoML: все модели для сравнительного эксперимента
+# ============================================================
+# Загрузить через UI: Моделирование → «Загрузить конфиг (YAML)»
+#
+# Включены все 12 моделей. Для clustered-моделей предварительно
+# нужно выполнить шаг Кластеризация.
+# ============================================================
+
+# --- Модели ---
+models:
+  - seasonal_naive       # baseline — значение из прошлого сезона
+  - catboost             # глобальный CatBoost (одна модель на все панели)
+  - catboost_per_panel   # отдельная модель на каждый артикул (медленно)
+  - catboost_clustered   # модель на кластер (нужна кластеризация)
+  - autoarima            # ARIMA с автоподбором (p,d,q)(P,D,Q)m
+  - autoets              # экспоненциальное сглаживание (автоструктура)
+  - autotheta            # метод Theta (авто-декомпозиция)
+  - mstl                 # многосезонная декомпозиция + AutoETS тренд
+  - chronos              # Chronos-2 (Amazon, 120M, zero-shot, GPU)
+  - ts2vec               # TS2Vec encoder → CatBoost (GPU)
+  - ts2vec_clustered     # TS2Vec encoder → CatBoost на кластер (GPU)
+  - patchtst             # PatchTST transformer (GPU)
+
+# --- Метрика отбора лучшей модели ---
+selection_metric: mape
+
+# --- Hyperopt (Optuna) ---
+use_hyperopt: false      # true — запустить подбор гиперпараметров CatBoost
+n_trials: 30             # количество trials Optuna
+hyperopt_timeout: null   # таймаут в секундах (null = без ограничения)
+
+# --- CatBoost (общие для catboost / per-panel / clustered) ---
+catboost_params:
+  iterations: 1000       # число деревьев
+  learning_rate: 0.03    # шаг обучения
+  depth: 6               # глубина дерева
+
+# --- Расширенные признаки CatBoost ---
+feature_params:
+  use_trend: false       # наклон линейной регрессии на скользящем окне
+  trend_window: 6        # окно тренда (месяцев)
+  use_cdf: false         # эмпирическая CDF как признак
+  cdf_decay: 0.9         # затухание CDF
+  use_mstl_seasonal: false  # сезонная компонента MSTL как признак
+
+# --- AutoARIMA ---
+autoarima_approximation: true  # быстрый подбор (рекомендуется)
+
+# --- Chronos-2 ---
+chronos_params:
+  context_length: null   # null = весь ряд (макс 8192 токенов)
+  cross_learning: false  # связи между рядами
+  batch_size: 256        # размер батча
+
+# --- TS2Vec ---
+ts2vec_params:
+  output_dims: 320       # размерность эмбеддинга
+  n_epochs: 50           # эпох обучения энкодера
+  batch_size: 16         # размер батча
+
+# --- PatchTST ---
+patchtst_params:
+  input_size: 24         # длина входной последовательности (авто: max(24, 3×season))
+  max_steps: 200         # шагов обучения
+  hidden_size: 64        # размер скрытого слоя
+  n_heads: 4             # число голов attention

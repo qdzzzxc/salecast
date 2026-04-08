@@ -228,3 +228,4 @@ tests/scripts/runs/
 example.sh
 papers/*
 plans/
+.playwright-mcp/

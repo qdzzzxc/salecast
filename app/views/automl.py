@@ -90,17 +90,41 @@ def _load_yaml_config(uploaded) -> None:
     st.session_state["cb_lr"] = cb.get("learning_rate", 0.03)
     st.session_state["cb_depth"] = cb.get("depth", 6)
     st.session_state["autoarima_approx"] = cfg.get("autoarima_approximation", True)
+    fp = cfg.get("feature_params") or {}
+    st.session_state["cb_use_trend"] = fp.get("use_trend", False)
+    st.session_state["cb_trend_window"] = fp.get("trend_window", 6)
+    st.session_state["cb_use_cdf"] = fp.get("use_cdf", False)
+    st.session_state["cb_cdf_decay"] = fp.get("cdf_decay", 0.9)
+    st.session_state["cb_use_mstl_seasonal"] = fp.get("use_mstl_seasonal", False)
+    ch = cfg.get("chronos_params") or {}
+    st.session_state["chronos_use_ctx"] = ch.get("context_length") is not None
+    if ch.get("context_length"):
+        st.session_state["chronos_ctx_len"] = ch["context_length"]
+    st.session_state["chronos_cross"] = ch.get("cross_learning", False)
+    st.session_state["chronos_batch"] = ch.get("batch_size", 256)
+    ts = cfg.get("ts2vec_params") or {}
+    st.session_state["ts2vec_output_dims"] = ts.get("output_dims", 320)
+    st.session_state["ts2vec_n_epochs"] = ts.get("n_epochs", 50)
+    st.session_state["ts2vec_batch_size"] = ts.get("batch_size", 16)
+    pt = cfg.get("patchtst_params") or {}
+    st.session_state["patchtst_input_size"] = pt.get("input_size", 24)
+    st.session_state["patchtst_max_steps"] = pt.get("max_steps", 200)
+    st.session_state["patchtst_hidden_size"] = pt.get("hidden_size", 64)
+    st.session_state["patchtst_n_heads"] = pt.get("n_heads", 4)
 
 
 def _render_config(has_clustering: bool = False) -> dict:
     """Конфигурация AutoML. Возвращает словарь параметров для API."""
-    with st.popover("Загрузить конфиг (YAML)"):
+    with st.expander("Загрузить конфиг (YAML)"):
         uploaded = st.file_uploader(
             "YAML файл", type=["yaml", "yml"], key="config_upload", label_visibility="collapsed"
         )
-        if uploaded:
+        if uploaded and not st.session_state.get("_config_applied"):
             _load_yaml_config(uploaded)
+            st.session_state["_config_applied"] = True
             st.rerun()
+        if not uploaded:
+            st.session_state.pop("_config_applied", None)
 
     st.markdown("**Модели**")
     cols = st.columns(len(_ALL_MODELS))
@@ -116,12 +140,11 @@ def _render_config(has_clustering: bool = False) -> dict:
                 )
                 and not has_clustering
             )
-            checked = st.checkbox(
-                _MODEL_LABELS[model],
-                value=model in defaults and not disabled,
-                key=f"model_{model}",
-                disabled=disabled,
-            )
+            key = f"model_{model}"
+            kwargs: dict = {"disabled": disabled}
+            if key not in st.session_state:
+                kwargs["value"] = model in defaults and not disabled
+            checked = st.checkbox(_MODEL_LABELS[model], key=key, **kwargs)
             if model in (ModelType.catboost_clustered, ModelType.ts2vec_clustered):
                 st.caption("Нет кластеров" if disabled else "Из кластеризации")
             elif model in _MODEL_CAPTIONS:
@@ -723,6 +746,45 @@ def _render_results(project: dict, automl_result: dict, split_result: dict) -> N
         for mr in sorted_mrs
     ]
     st.dataframe(pd.DataFrame(summary_rows), width="stretch", hide_index=True)
+
+    # Кнопка скачивания предсказаний CSV
+    all_panel_ids = [
+        str(p["panel_id"])
+        for p in model_results[0].get("panel_metrics", [])
+    ]
+    all_model_names = [mr["name"] for mr in model_results]
+    csv_cache_key = f"automl_csv_{project_id}"
+    if csv_cache_key not in st.session_state and all_panel_ids:
+        with st.spinner("Подготовка CSV..."):
+            try:
+                preds = get_automl_predictions(project_id, all_panel_ids, all_model_names)
+                rows = []
+                for model_name, panels in preds.items():
+                    for panel_id, points in panels.items():
+                        for pt in points:
+                            rows.append({
+                                "model": model_name,
+                                "panel_id": panel_id,
+                                "date": pt.get("date"),
+                                "y_pred": pt.get("y_pred"),
+                                "split": pt.get("split"),
+                            })
+                if rows:
+                    st.session_state[csv_cache_key] = (
+                        pd.DataFrame(rows).to_csv(index=False).encode()
+                    )
+                else:
+                    st.session_state[csv_cache_key] = None
+            except Exception:
+                st.session_state[csv_cache_key] = None
+    csv_data = st.session_state.get(csv_cache_key)
+    if csv_data:
+        st.download_button(
+            "Скачать предсказания (CSV)",
+            csv_data,
+            f"salecast_modeling_predictions_{project_id}.csv",
+            "text/csv",
+        )
 
     # Лучшие / худшие панели
     best_mr = next(mr for mr in model_results if mr["name"] == best_model)
