@@ -1,26 +1,28 @@
+# --- base: общие зависимости (api, streamlit, flower) ---
 FROM python:3.10-slim AS deps
 
 COPY --from=ghcr.io/astral-sh/uv:0.11.1 /uv /uvx /bin/
 
+ENV UV_LINK_MODE=copy
 WORKDIR /app
 
-# Только lock-файлы — этот слой стабилен при изменении кода
-COPY pyproject.toml uv.lock ./
+COPY requirements/base.txt requirements/base.txt
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    uv venv && uv pip install --no-deps -r requirements/base.txt
 
-# ---------- лёгкий образ: api, streamlit, flower ----------
+# --- app: api, streamlit, flower ---
 FROM deps AS app
 COPY . .
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH=/app
 
-# ---------- тяжёлые зависимости worker (стабильный слой) ----------
+# --- worker-deps: + neural (torch, chronos, neuralforecast) ---
 FROM deps AS worker-deps
+COPY requirements/neural.txt requirements/neural.txt
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --extra neural
+    uv pip install --no-deps -r requirements/neural.txt
 
-# ---------- worker: код поверх тяжёлых deps ----------
+# --- worker ---
 FROM worker-deps AS worker
 COPY . .
 ENV PATH="/app/.venv/bin:$PATH"
