@@ -2,6 +2,8 @@ from datetime import date
 
 from pydantic import BaseModel, Field
 
+from src.automl.config import AutoMLConfig
+from src.diagnostics.config import DiagnosticsConfig
 from src.model_selection import SplitRange
 
 
@@ -14,9 +16,10 @@ class ColumnConfig(BaseModel):
 
 
 class FiltrationConfig(BaseModel):
-    min_series_length: int = 18 #6
+    min_series_length: int = 18
     min_total_sales: int = 10
     max_zero_ratio: float = 0.2
+    columns: ColumnConfig = Field(default_factory=ColumnConfig)
 
 
 class PreprocessingConfig(BaseModel):
@@ -48,6 +51,13 @@ class SplitConfig(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
 
+class TimeSeriesConfig(BaseModel):
+    """Конфигурация временного ряда."""
+
+    freq: str = Field(default="MS", description="Частота ряда (MS, D, W, Q и т.д.)")
+    season_length: int = Field(default=12, description="Длина сезонного периода")
+
+
 class DownstreamConfig(BaseModel):
     """Конфигурация downstream-модели."""
 
@@ -57,6 +67,20 @@ class DownstreamConfig(BaseModel):
     round_predictions: bool = Field(default=True, description="Округлять предсказания до целых")
     inverse: bool = Field(
         default=True, description="Применять обратное преобразование к предсказаниям"
+    )
+    use_trend: bool = Field(
+        default=False, description="Добавлять признак тренда (наклон регрессии)"
+    )
+    trend_window: int = Field(default=6, description="Окно для вычисления тренда (точек)")
+    use_cdf: bool = Field(
+        default=False, description="Добавлять CDF-признак (позиция в распределении)"
+    )
+    cdf_decay: float = Field(
+        default=0.9, description="Коэффициент затухания для взвешенного CDF (0-1)"
+    )
+    use_mstl_seasonal: bool = Field(
+        default=False,
+        description="Добавлять сезонную компоненту MSTL как признак",
     )
 
 
@@ -73,4 +97,15 @@ class Settings(BaseModel):
     )
     filtration: FiltrationConfig = FiltrationConfig()
 
-    random_state: int = Field(default=420, description="Seed для воспроизводимости")
+    ts: TimeSeriesConfig = Field(
+        default_factory=TimeSeriesConfig, description="Параметры временного ряда"
+    )
+    random_state: int = Field(default=42, description="Seed для воспроизводимости")
+    automl: AutoMLConfig = Field(
+        default_factory=AutoMLConfig,
+        description="Конфигурация AutoML",
+    )
+    diagnostics: DiagnosticsConfig = Field(
+        default_factory=DiagnosticsConfig,
+        description="Конфигурация диагностики качества данных",
+    )

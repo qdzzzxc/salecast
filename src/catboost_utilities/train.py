@@ -14,6 +14,7 @@ def train_catboost(
     val_df: pd.DataFrame | None,
     params: CatBoostParameters,
     settings: Settings,
+    callbacks: list | None = None,
 ) -> cb.CatBoostRegressor:
     """Обучает CatBoost модель."""
     target = settings.columns.main_target
@@ -37,6 +38,7 @@ def train_catboost(
         eval_set=eval_set,
         use_best_model=eval_set is not None,
         early_stopping_rounds=params.iterations // 10,
+        callbacks=callbacks,
     )
 
     logger.info(f"CatBoost trained with {model.tree_count_} trees")

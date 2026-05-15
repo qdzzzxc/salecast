@@ -216,10 +216,19 @@ __marimo__/
 .streamlit/secrets.toml
 
 notes
+examples/*train.csv
 
 data/*
 *catboost_info
 artifacts/*
-temp_notebooks/
+test_notebooks/
 *.db
 lightning_logs
+tests/scripts/runs/
+example.sh
+papers/*
+plans/
+.playwright-mcp/
+scripts/data/*
+*.png
+assets

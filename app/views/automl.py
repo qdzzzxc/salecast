@@ -1,0 +1,1316 @@
+import time
+
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
+import yaml
+
+from app.api_client import (
+    get_automl_predictions,
+    get_automl_progress,
+    get_job,
+    get_panels_data,
+    run_automl,
+    skip_model,
+)
+from app.state import get_current_project
+from src.custom_types import MetricType, ModelType
+
+_ALL_MODELS = list(ModelType)
+
+_FREQ_LABELS: dict[str, str] = {
+    "D": "Дневная",
+    "B": "Рабочие дни",
+    "W": "Недельная",
+    "MS": "Месячная",
+    "ME": "Месячная",
+    "M": "Месячная",
+    "QS": "Квартальная",
+    "Q": "Квартальная",
+    "A": "Годовая",
+    "AS": "Годовая",
+}
+_FREQ_SEASON: dict[str, int] = {"D": 7, "W": 52, "MS": 12, "QS": 4}
+_MODEL_LABELS = {
+    ModelType.seasonal_naive: "Seasonal Naive",
+    ModelType.catboost: "CatBoost",
+    ModelType.catboost_per_panel: "CatBoost per-panel",
+    ModelType.catboost_clustered: "CatBoost clustered",
+    ModelType.autoarima: "AutoARIMA",
+    ModelType.autoets: "AutoETS",
+    ModelType.autotheta: "AutoTheta",
+    ModelType.mstl: "MSTL",
+    ModelType.chronos: "Chronos-2",
+    ModelType.ts2vec: "TS2Vec + CatBoost",
+    ModelType.ts2vec_clustered: "TS2Vec clustered",
+    ModelType.patchtst: "PatchTST",
+}
+_MODEL_COLORS = {
+    ModelType.seasonal_naive: "#4CAF50",
+    ModelType.catboost: "#FF6B6B",
+    ModelType.catboost_per_panel: "#FF9999",
+    ModelType.catboost_clustered: "#FF6ED8",
+    ModelType.autoarima: "#FFB347",
+    ModelType.autoets: "#87CEEB",
+    ModelType.autotheta: "#F7C948",
+    ModelType.mstl: "#9B59B6",
+    ModelType.chronos: "#1ABC9C",
+    ModelType.ts2vec: "#E67E22",
+    ModelType.ts2vec_clustered: "#D35400",
+    ModelType.patchtst: "#5DADE2",
+}
+_GPU_MODELS = {ModelType.chronos, ModelType.ts2vec, ModelType.ts2vec_clustered, ModelType.patchtst}
+_MODEL_CAPTIONS: dict[ModelType, str] = {
+    ModelType.catboost_per_panel: "Медленно",
+    ModelType.mstl: "Декомпозиция",
+    ModelType.chronos: "Zero-shot, GPU",
+    ModelType.ts2vec: "Encoder + CatBoost, GPU",
+    ModelType.ts2vec_clustered: "Encoder + CatBoost на кластер, GPU",
+    ModelType.patchtst: "Трансформер, GPU",
+}
+_METRICS = [m.value for m in MetricType if m != MetricType.r2]
+
+_TRAIN_COLOR = "rgba(99, 149, 230, 0.15)"
+_VAL_COLOR = "rgba(255, 180, 50, 0.2)"
+_TEST_COLOR = "rgba(229, 100, 100, 0.2)"
+
+
+def _load_yaml_config(uploaded) -> None:
+    """Записывает параметры из загруженного YAML в session_state."""
+    cfg = yaml.safe_load(uploaded.read())
+    st.session_state["automl_metric"] = cfg.get("selection_metric", "mape")
+    st.session_state["automl_hyperopt"] = cfg.get("use_hyperopt", False)
+    st.session_state["automl_n_trials"] = cfg.get("n_trials", 30)
+    st.session_state["automl_hyperopt_timeout"] = cfg.get("hyperopt_timeout")
+    for model in _ALL_MODELS:
+        st.session_state[f"model_{model}"] = model in cfg.get("models", [])
+    cb = cfg.get("catboost_params") or {}
+    st.session_state["cb_iterations"] = cb.get("iterations", 1000)
+    st.session_state["cb_lr"] = cb.get("learning_rate", 0.03)
+    st.session_state["cb_depth"] = cb.get("depth", 6)
+    st.session_state["autoarima_approx"] = cfg.get("autoarima_approximation", True)
+    fp = cfg.get("feature_params") or {}
+    st.session_state["cb_use_trend"] = fp.get("use_trend", False)
+    st.session_state["cb_trend_window"] = fp.get("trend_window", 6)
+    st.session_state["cb_use_cdf"] = fp.get("use_cdf", False)
+    st.session_state["cb_cdf_decay"] = fp.get("cdf_decay", 0.9)
+    st.session_state["cb_use_mstl_seasonal"] = fp.get("use_mstl_seasonal", False)
+    ch = cfg.get("chronos_params") or {}
+    st.session_state["chronos_use_ctx"] = ch.get("context_length") is not None
+    if ch.get("context_length"):
+        st.session_state["chronos_ctx_len"] = ch["context_length"]
+    st.session_state["chronos_cross"] = ch.get("cross_learning", False)
+    st.session_state["chronos_batch"] = ch.get("batch_size", 256)
+    ts = cfg.get("ts2vec_params") or {}
+    st.session_state["ts2vec_output_dims"] = ts.get("output_dims", 320)
+    st.session_state["ts2vec_n_epochs"] = ts.get("n_epochs", 50)
+    st.session_state["ts2vec_batch_size"] = ts.get("batch_size", 16)
+    pt = cfg.get("patchtst_params") or {}
+    st.session_state["patchtst_input_size"] = pt.get("input_size", 24)
+    st.session_state["patchtst_max_steps"] = pt.get("max_steps", 200)
+    st.session_state["patchtst_hidden_size"] = pt.get("hidden_size", 64)
+    st.session_state["patchtst_n_heads"] = pt.get("n_heads", 4)
+
+
+def _render_config(has_clustering: bool = False) -> dict:
+    """Конфигурация AutoML. Возвращает словарь параметров для API."""
+    with st.expander("Загрузить конфиг (YAML)"):
+        uploaded = st.file_uploader(
+            "YAML файл", type=["yaml", "yml"], key="config_upload", label_visibility="collapsed"
+        )
+        if uploaded and not st.session_state.get("_config_applied"):
+            _load_yaml_config(uploaded)
+            st.session_state["_config_applied"] = True
+            st.rerun()
+        if not uploaded:
+            st.session_state.pop("_config_applied", None)
+
+    st.markdown("**Модели**")
+    cols = st.columns(len(_ALL_MODELS))
+    selected = []
+    defaults = {"seasonal_naive", "catboost"}
+    for i, model in enumerate(_ALL_MODELS):
+        with cols[i]:
+            disabled = (
+                model
+                in (
+                    ModelType.catboost_clustered,
+                    ModelType.ts2vec_clustered,
+                )
+                and not has_clustering
+            )
+            key = f"model_{model}"
+            kwargs: dict = {"disabled": disabled}
+            if key not in st.session_state:
+                kwargs["value"] = model in defaults and not disabled
+            checked = st.checkbox(_MODEL_LABELS[model], key=key, **kwargs)
+            if model in (ModelType.catboost_clustered, ModelType.ts2vec_clustered):
+                st.caption("Нет кластеров" if disabled else "Из кластеризации")
+            elif model in _MODEL_CAPTIONS:
+                st.caption(_MODEL_CAPTIONS[model])
+            if checked and not disabled:
+                selected.append(model)
+
+    n_trials = 30
+    hyperopt_timeout = None
+    metric = st.selectbox("Метрика отбора", _METRICS, key="automl_metric")
+    col_hp, col_trials, col_timeout = st.columns(3)
+    with col_hp:
+        use_hyperopt = st.toggle("Hyperopt (Optuna)", value=False, key="automl_hyperopt")
+    if use_hyperopt:
+        with col_trials:
+            n_trials = st.number_input(
+                "Trials",
+                min_value=1,
+                max_value=500,
+                step=5,
+                value=st.session_state.get("automl_n_trials", 30),
+                key="automl_n_trials",
+            )
+        with col_timeout:
+            timeout_min = st.number_input(
+                "Таймаут (мин)",
+                min_value=0,
+                max_value=120,
+                step=1,
+                value=st.session_state.get("automl_timeout_min", 0),
+                key="automl_timeout_min",
+                help="0 = без таймаута",
+            )
+            if timeout_min > 0:
+                hyperopt_timeout = int(timeout_min) * 60
+
+    cb_iterations = 1000
+    cb_lr = 0.03
+    cb_depth = 6
+    use_trend = False
+    trend_window = 6
+    use_cdf = False
+    cdf_decay = 0.9
+    use_mstl_seasonal = False
+    hyperopt_ranges: dict | None = None
+    has_catboost = any(
+        m in selected for m in ("catboost", "catboost_per_panel", "catboost_clustered")
+    )
+    if has_catboost:
+        with st.expander("Настройки CatBoost (общие для всех вариантов)"):
+            if use_hyperopt:
+                st.markdown("**Диапазоны поиска Optuna**")
+                col_iter, col_lr, col_depth = st.columns(3)
+                with col_iter:
+                    iter_range = st.slider(
+                        "iterations",
+                        min_value=50,
+                        max_value=3000,
+                        value=st.session_state.get("hp_iter_range", (200, 1000)),
+                        step=50,
+                        key="hp_iter_range",
+                    )
+                with col_lr:
+                    lr_range = st.slider(
+                        "learning_rate",
+                        min_value=0.001,
+                        max_value=1.0,
+                        value=st.session_state.get("hp_lr_range", (0.01, 0.3)),
+                        step=0.005,
+                        format="%.3f",
+                        key="hp_lr_range",
+                    )
+                with col_depth:
+                    depth_range = st.slider(
+                        "depth",
+                        min_value=1,
+                        max_value=12,
+                        value=st.session_state.get("hp_depth_range", (3, 8)),
+                        step=1,
+                        key="hp_depth_range",
+                    )
+                col_l2, col_sub = st.columns(2)
+                with col_l2:
+                    l2_range = st.slider(
+                        "l2_leaf_reg",
+                        min_value=0.1,
+                        max_value=100.0,
+                        value=st.session_state.get("hp_l2_range", (1.0, 50.0)),
+                        step=0.5,
+                        key="hp_l2_range",
+                    )
+                with col_sub:
+                    sub_range = st.slider(
+                        "subsample",
+                        min_value=0.1,
+                        max_value=1.0,
+                        value=st.session_state.get("hp_sub_range", (0.6, 1.0)),
+                        step=0.05,
+                        key="hp_sub_range",
+                    )
+                hyperopt_ranges = {
+                    "iterations": {
+                        "type": "int",
+                        "low": iter_range[0],
+                        "high": iter_range[1],
+                        "step": 50,
+                    },
+                    "learning_rate": {
+                        "type": "float",
+                        "low": lr_range[0],
+                        "high": lr_range[1],
+                        "log": True,
+                    },
+                    "depth": {"type": "int", "low": depth_range[0], "high": depth_range[1]},
+                    "l2_leaf_reg": {
+                        "type": "float",
+                        "low": l2_range[0],
+                        "high": l2_range[1],
+                        "log": True,
+                    },
+                    "subsample": {"type": "float", "low": sub_range[0], "high": sub_range[1]},
+                }
+            else:
+                cb_iterations = st.number_input(
+                    "iterations",
+                    min_value=50,
+                    max_value=5000,
+                    step=50,
+                    value=st.session_state.get("cb_iterations", 1000),
+                    key="cb_iterations",
+                )
+                cb_lr = st.number_input(
+                    "learning_rate",
+                    min_value=0.001,
+                    max_value=1.0,
+                    step=0.005,
+                    format="%.3f",
+                    value=st.session_state.get("cb_lr", 0.03),
+                    key="cb_lr",
+                )
+                cb_depth = st.number_input(
+                    "depth",
+                    min_value=2,
+                    max_value=12,
+                    step=1,
+                    value=st.session_state.get("cb_depth", 6),
+                    key="cb_depth",
+                )
+            st.markdown("**Расширенные признаки**")
+            col_f1, col_f2 = st.columns(2)
+            with col_f1:
+                use_trend = st.checkbox(
+                    "Тренд (наклон регрессии)",
+                    value=st.session_state.get("cb_use_trend", False),
+                    key="cb_use_trend",
+                    help="Добавляет признак — наклон линейной регрессии на скользящем окне",
+                )
+                if use_trend:
+                    trend_window = st.number_input(
+                        "Окно тренда",
+                        min_value=3,
+                        max_value=24,
+                        step=1,
+                        value=st.session_state.get("cb_trend_window", 6),
+                        key="cb_trend_window",
+                    )
+            with col_f2:
+                use_cdf = st.checkbox(
+                    "CDF (позиция в распределении)",
+                    value=st.session_state.get("cb_use_cdf", False),
+                    key="cb_use_cdf",
+                    help="Добавляет признак — взвешенная доля прошлых значений ≤ текущему",
+                )
+                if use_cdf:
+                    cdf_decay = st.number_input(
+                        "Затухание CDF",
+                        min_value=0.5,
+                        max_value=1.0,
+                        step=0.05,
+                        format="%.2f",
+                        value=st.session_state.get("cb_cdf_decay", 0.9),
+                        key="cb_cdf_decay",
+                    )
+            use_mstl_seasonal = st.checkbox(
+                "MSTL-сезонность",
+                value=st.session_state.get("cb_use_mstl_seasonal", False),
+                key="cb_use_mstl_seasonal",
+                help="Добавляет сезонную компоненту MSTL как признак (декомпозиция ряда)",
+            )
+
+    chronos_context_length = None
+    chronos_cross_learning = False
+    chronos_batch_size = 256
+    if ModelType.chronos in selected:
+        with st.expander("Настройки Chronos-2"):
+            use_ctx = st.checkbox(
+                "Ограничить контекст",
+                value=st.session_state.get("chronos_use_ctx", False),
+                key="chronos_use_ctx",
+                help="По умолчанию используется весь ряд (макс 8192 токенов)",
+            )
+            if use_ctx:
+                chronos_context_length = st.number_input(
+                    "context_length",
+                    min_value=64,
+                    max_value=8192,
+                    step=64,
+                    value=st.session_state.get("chronos_ctx_len", 512),
+                    key="chronos_ctx_len",
+                )
+            chronos_cross_learning = st.checkbox(
+                "Cross-learning (связи между рядами)",
+                value=st.session_state.get("chronos_cross", False),
+                key="chronos_cross",
+                help="Учитывать зависимости между панелями при прогнозе",
+            )
+            chronos_batch_size = st.number_input(
+                "batch_size",
+                min_value=1,
+                max_value=1024,
+                step=32,
+                value=st.session_state.get("chronos_batch", 256),
+                key="chronos_batch",
+                help="Уменьшить при нехватке GPU памяти",
+            )
+
+    ts2vec_output_dims = 320
+    ts2vec_n_epochs = 50
+    ts2vec_batch_size = 16
+    if ModelType.ts2vec in selected:
+        with st.expander("Настройки TS2Vec"):
+            ts2vec_output_dims = st.number_input(
+                "output_dims (размерность эмбеддингов)",
+                min_value=32,
+                max_value=1024,
+                step=32,
+                value=st.session_state.get("ts2vec_output_dims", 320),
+                key="ts2vec_output_dims",
+            )
+            ts2vec_n_epochs = st.number_input(
+                "n_epochs (эпохи энкодера)",
+                min_value=5,
+                max_value=500,
+                step=5,
+                value=st.session_state.get("ts2vec_n_epochs", 50),
+                key="ts2vec_n_epochs",
+            )
+            ts2vec_batch_size = st.number_input(
+                "batch_size",
+                min_value=4,
+                max_value=256,
+                step=4,
+                value=st.session_state.get("ts2vec_batch_size", 16),
+                key="ts2vec_batch_size",
+            )
+
+    patchtst_input_size = 24
+    patchtst_max_steps = 200
+    patchtst_hidden_size = 64
+    patchtst_n_heads = 4
+    if ModelType.patchtst in selected:
+        with st.expander("Настройки PatchTST"):
+            patchtst_input_size = st.number_input(
+                "input_size (lookback)",
+                min_value=8,
+                max_value=256,
+                step=4,
+                value=st.session_state.get("patchtst_input_size", 24),
+                key="patchtst_input_size",
+            )
+            patchtst_max_steps = st.number_input(
+                "max_steps (шагов обучения)",
+                min_value=20,
+                max_value=2000,
+                step=20,
+                value=st.session_state.get("patchtst_max_steps", 200),
+                key="patchtst_max_steps",
+            )
+            patchtst_hidden_size = st.number_input(
+                "hidden_size",
+                min_value=16,
+                max_value=256,
+                step=16,
+                value=st.session_state.get("patchtst_hidden_size", 64),
+                key="patchtst_hidden_size",
+            )
+            patchtst_n_heads = st.number_input(
+                "n_heads",
+                min_value=1,
+                max_value=16,
+                step=1,
+                value=st.session_state.get("patchtst_n_heads", 4),
+                key="patchtst_n_heads",
+            )
+
+    autoarima_approx = True
+    if "autoarima" in selected:
+        with st.expander("Настройки AutoARIMA"):
+            autoarima_approx = st.checkbox(
+                "Быстрый режим (approximation)",
+                value=st.session_state.get("autoarima_approx", True),
+                key="autoarima_approx",
+                help="approximation=True ускоряет подбор порядков ARIMA, рекомендуется для больших датасетов",
+            )
+
+    return {
+        "models": selected,
+        "selection_metric": metric,
+        "use_hyperopt": use_hyperopt,
+        "n_trials": int(n_trials),
+        "hyperopt_timeout": hyperopt_timeout,
+        "hyperopt_ranges": hyperopt_ranges,
+        "catboost_params": {
+            "iterations": int(cb_iterations),
+            "learning_rate": float(cb_lr),
+            "depth": int(cb_depth),
+        },
+        "chronos_params": {
+            "context_length": int(chronos_context_length) if chronos_context_length else None,
+            "cross_learning": bool(chronos_cross_learning),
+            "batch_size": int(chronos_batch_size),
+        },
+        "ts2vec_params": {
+            "output_dims": int(ts2vec_output_dims),
+            "n_epochs": int(ts2vec_n_epochs),
+            "batch_size": int(ts2vec_batch_size),
+        },
+        "patchtst_params": {
+            "input_size": int(patchtst_input_size),
+            "max_steps": int(patchtst_max_steps),
+            "hidden_size": int(patchtst_hidden_size),
+            "n_heads": int(patchtst_n_heads),
+        },
+        "autoarima_approximation": bool(autoarima_approx),
+        "feature_params": {
+            "use_trend": use_trend,
+            "trend_window": int(trend_window),
+            "use_cdf": use_cdf,
+            "cdf_decay": float(cdf_decay),
+            "use_mstl_seasonal": use_mstl_seasonal,
+        },
+    }
+
+
+def _render_loss_chart(
+    loss_history: list[tuple[int, float]] | None = None,
+    best_loss: float | None = None,
+    chart_key: str = "ts2vec_loss_chart",
+    loss_histories: list[list[tuple[int, float]]] | None = None,
+) -> None:
+    """Мини-график loss по эпохам для моделей с историей обучения."""
+    fig = go.Figure()
+
+    if loss_histories:
+        # Несколько трасс — по одной на кластер
+        colors = [
+            "#E67E22", "#3498DB", "#2ECC71", "#E74C3C", "#9B59B6",
+            "#1ABC9C", "#F39C12", "#D35400", "#2980B9", "#27AE60",
+        ]
+        for i, hist in enumerate(loss_histories):
+            epochs = [e for e, _ in hist]
+            losses = [lv for _, lv in hist]
+            fig.add_trace(
+                go.Scatter(
+                    x=epochs,
+                    y=losses,
+                    mode="lines",
+                    name=f"Кластер {i + 1}",
+                    line=dict(color=colors[i % len(colors)], width=1.5),
+                )
+            )
+    elif loss_history:
+        epochs = [e for e, _ in loss_history]
+        losses = [lv for _, lv in loss_history]
+        fig.add_trace(
+            go.Scatter(
+                x=epochs,
+                y=losses,
+                mode="lines",
+                name="Loss",
+                line=dict(color="#E67E22", width=1.5),
+            )
+        )
+        if best_loss is not None:
+            fig.add_trace(
+                go.Scatter(
+                    x=[epochs[0], epochs[-1]],
+                    y=[best_loss, best_loss],
+                    mode="lines",
+                    name=f"Best: {best_loss:.4f}",
+                    line=dict(color="#2ECC71", width=1.5, dash="dash"),
+                )
+            )
+    else:
+        return
+
+    fig.update_layout(
+        height=200,
+        margin=dict(l=0, r=0, t=10, b=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font_color="#FAFAFA",
+        xaxis=dict(title="Epoch", showgrid=False),
+        yaxis=dict(title="Contrastive Loss", showgrid=True, gridcolor="#333"),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    st.plotly_chart(fig, width="stretch", key=chart_key)
+
+
+def _render_progress(project_id: str, job_id: str, models: list[str]) -> bool:
+    """Отображает прогресс AutoML. Возвращает True если завершено."""
+    try:
+        job = get_job(job_id)
+        events = get_automl_progress(project_id, job_id)
+    except Exception as e:
+        st.error(f"Ошибка получения статуса: {e}")
+        return False
+
+    done_models = {e["model"] for e in events if e.get("type") == "model_done"}
+    skipped_models = {
+        e["model"] for e in events if e.get("type") in ("model_skipped", "model_timeout")
+    }
+    finished_models = done_models | skipped_models
+    current_model = next(
+        (
+            e["model"]
+            for e in reversed(events)
+            if e.get("type") == "model_start" and e["model"] not in finished_models
+        ),
+        None,
+    )
+
+    # Последнее progress-сообщение для текущей модели
+    last_progress = next(
+        (
+            e
+            for e in reversed(events)
+            if e.get("type") == "model_progress" and e.get("model") == current_model
+        ),
+        None,
+    )
+
+    # Hyperopt статус
+    hyperopt_started = any(e.get("type") == "hyperopt_start" for e in events)
+    hyperopt_finished = any(e.get("type") in ("hyperopt_done", "hyperopt_failed") for e in events)
+    hyperopt_failed = any(e.get("type") == "hyperopt_failed" for e in events)
+
+    if hyperopt_started:
+        trial_events = [e for e in events if e.get("type") == "hyperopt_trial"]
+        last_trial = trial_events[-1] if trial_events else None
+
+        if not hyperopt_finished:
+            n_trials_total = next(
+                (e.get("n_trials", "?") for e in events if e.get("type") == "hyperopt_start"),
+                "?",
+            )
+            if last_trial:
+                t_n = last_trial.get("trial", "?")
+                t_best = last_trial.get("best", "?")
+                hp_pct = int(int(t_n) / int(n_trials_total) * 100) if n_trials_total != "?" else 0
+                st.progress(
+                    hp_pct / 100,
+                    text=f"Hyperopt: trial {t_n}/{n_trials_total}, best MAPE: {t_best}",
+                )
+            else:
+                st.progress(0, text=f"Hyperopt: запуск ({n_trials_total} trials)...")
+        elif hyperopt_failed:
+            st.warning("Hyperopt завершился с ошибкой — используются параметры по умолчанию")
+        else:
+            best_val = last_trial.get("best", "?") if last_trial else "?"
+            st.success(f"Hyperopt: лучший MAPE = {best_val}")
+
+    n_done = len(finished_models)
+    n_total = len(models)
+    pct = int(n_done / n_total * 100) if n_total else 0
+
+    st.progress(pct, text=f"{n_done} / {n_total} моделей")
+    for model in models:
+        label = _MODEL_LABELS.get(model, model)
+        if model in done_models:
+            metric_event = next(
+                (e for e in events if e.get("type") == "model_done" and e.get("model") == model), {}
+            )
+            metric_val = next((v for k, v in metric_event.items() if k.startswith("val_")), "")
+            st.markdown(f"✅ {label}" + (f" — val: {metric_val}" if metric_val else ""))
+        elif model in skipped_models:
+            timeout = any(
+                e.get("type") == "model_timeout" and e.get("model") == model for e in events
+            )
+            st.markdown(
+                f"{'⏱' if timeout else '⏭'} {label} — {'таймаут' if timeout else 'пропущено'}"
+            )
+        elif model == current_model:
+            progress_msg = last_progress.get("message", "") if last_progress else ""
+            progress_pct_str = last_progress.get("pct") if last_progress else None
+            progress_pct = float(progress_pct_str) if progress_pct_str else None
+
+            col_status, col_skip = st.columns([5, 1])
+            with col_status:
+                suffix = f" — {progress_msg}" if progress_msg else ""
+                if progress_pct is not None:
+                    st.progress(int(progress_pct) / 100, text=f"⏳ {label}{suffix}")
+                else:
+                    st.markdown(f"⏳ {label}{suffix}")
+
+                # График loss для моделей с историей обучения (TS2Vec)
+                # Не сортируем глобально — сохраняем порядок прихода событий,
+                # разбиваем на runs по сбросу эпохи (каждый кластер начинает с 0)
+                raw_loss = [
+                    (int(e["epoch"]), float(e["loss"]))
+                    for e in events
+                    if e.get("type") == "model_progress"
+                    and e.get("model") == model
+                    and e.get("loss")
+                    and e.get("epoch")
+                ]
+                if len(raw_loss) >= 2:
+                    # Разбиваем на runs: новый run начинается когда epoch <= предыдущей
+                    runs: list[list[tuple[int, float]]] = []
+                    current_run: list[tuple[int, float]] = [raw_loss[0]]
+                    for ep, lv in raw_loss[1:]:
+                        if ep <= current_run[-1][0]:
+                            runs.append(current_run)
+                            current_run = []
+                        current_run.append((ep, lv))
+                    runs.append(current_run)
+
+                    if len(runs) == 1:
+                        best = last_progress.get("best_loss") if last_progress else None
+                        _render_loss_chart(runs[0], float(best) if best else None)
+                    else:
+                        _render_loss_chart(loss_histories=runs)
+
+            with col_skip:
+                if st.button("Пропустить", key=f"skip_{model}", width="stretch"):
+                    try:
+                        skip_model(project_id, job_id, model)
+                    except Exception:
+                        pass
+        else:
+            st.markdown(f"⬜ {label}")
+
+    if job["status"] == "done":
+        return True
+    if job["status"] == "failed":
+        st.error("AutoML завершился с ошибкой")
+        del st.session_state.automl_job_id
+        return False
+
+    time.sleep(2)
+    st.rerun()
+    return False
+
+
+def _render_results(project: dict, automl_result: dict, split_result: dict) -> None:
+    """Отображает результаты AutoML."""
+    best_model = automl_result["best_model"]
+    metric = automl_result["selection_metric"]
+    model_results = automl_result["model_results"]
+    val_periods = split_result.get("val_periods", 0)
+    test_periods = split_result.get("test_periods", 0)
+    project_id = str(project.get("project_id", ""))
+
+    # Сортируем модели по val-метрике для определения топ-3
+    sorted_mrs = sorted(model_results, key=lambda mr: mr.get(f"val_{metric}", float("inf")))
+    all_model_names = [mr["name"] for mr in sorted_mrs]
+    default_model_names = [mr["name"] for mr in sorted_mrs[:3]]
+
+    ts_info = automl_result.get("ts") or {}
+    ts_freq = ts_info.get("freq", "MS")
+    ts_season = ts_info.get("season_length", 12)
+    ts_source = ts_info.get("freq_source", "auto")
+    freq_label = _FREQ_LABELS.get(ts_freq, ts_freq)
+    source_label = "авто" if ts_source == "auto" else "задана вручную"
+    col_best, col_ts1, col_ts2 = st.columns(3)
+    col_best.success(f"Лучшая модель: **{_MODEL_LABELS.get(best_model, best_model)}**")
+    col_ts1.metric("Частота данных", f"{freq_label} ({ts_freq})", help=f"Источник: {source_label}")
+    col_ts2.metric("Сезонный период", ts_season, help="Используется в SeasonalNaive и StatsModels")
+
+    # Глобальный селектор моделей — применяется ко всем графикам на странице
+    selected_models = st.multiselect(
+        "Модели на графиках",
+        options=all_model_names,
+        default=[m for m in default_model_names if m in all_model_names],
+        format_func=lambda x: _MODEL_LABELS.get(x, x),
+        key="automl_model_selector",
+    )
+
+    # Сводная таблица моделей
+    st.markdown("**Сравнение моделей**")
+    summary_rows = [
+        {
+            "Модель": _MODEL_LABELS.get(mr["name"], mr["name"]),
+            f"Val {metric.upper()}": round(mr.get(f"val_{metric}", float("inf")), 4),
+            f"Test {metric.upper()}": round(mr.get(f"test_{metric}", float("inf")), 4),
+            "Лучшая": "⭐" if mr["name"] == best_model else "",
+        }
+        for mr in sorted_mrs
+    ]
+    st.dataframe(pd.DataFrame(summary_rows), width="stretch", hide_index=True)
+
+    # Кнопка скачивания предсказаний CSV
+    all_panel_ids = [
+        str(p["panel_id"])
+        for p in model_results[0].get("panel_metrics", [])
+    ]
+    all_model_names = [mr["name"] for mr in model_results]
+    csv_cache_key = f"automl_csv_{project_id}"
+    if csv_cache_key not in st.session_state and all_panel_ids:
+        with st.spinner("Подготовка CSV..."):
+            try:
+                preds = get_automl_predictions(project_id, all_panel_ids, all_model_names)
+                rows = []
+                for model_name, panels in preds.items():
+                    for panel_id, points in panels.items():
+                        for pt in points:
+                            rows.append({
+                                "model": model_name,
+                                "panel_id": panel_id,
+                                "date": pt.get("date"),
+                                "y_pred": pt.get("y_pred"),
+                                "split": pt.get("split"),
+                            })
+                if rows:
+                    st.session_state[csv_cache_key] = (
+                        pd.DataFrame(rows).to_csv(index=False).encode()
+                    )
+                else:
+                    st.session_state[csv_cache_key] = None
+            except Exception:
+                st.session_state[csv_cache_key] = None
+    csv_data = st.session_state.get(csv_cache_key)
+    if csv_data:
+        st.download_button(
+            "Скачать предсказания (CSV)",
+            csv_data,
+            f"salecast_modeling_predictions_{project_id}.csv",
+            "text/csv",
+        )
+
+    # Лучшие / худшие панели
+    best_mr = next(mr for mr in model_results if mr["name"] == best_model)
+    panel_rows = [
+        {
+            "Panel ID": p["panel_id"],
+            f"Val {metric.upper()}": round(p["val"], 4) if p["val"] is not None else None,
+            f"Test {metric.upper()}": round(p["test"], 4) if p["test"] is not None else None,
+        }
+        for p in best_mr.get("panel_metrics", [])
+    ]
+    panel_df = pd.DataFrame(panel_rows).sort_values(f"Test {metric.upper()}")
+    top3 = [str(p) for p in panel_df.head(3)["Panel ID"].tolist()]
+    bot3 = [str(p) for p in panel_df.tail(3)["Panel ID"].tolist()]
+    mini_panel_ids = list(dict.fromkeys(top3 + bot3))
+
+    mini_cache_key = f"automl_mini_preds_{project_id}"
+    if mini_cache_key not in st.session_state and mini_panel_ids:
+        with st.spinner("Загрузка предсказаний..."):
+            try:
+                st.session_state[mini_cache_key] = get_automl_predictions(
+                    project_id, mini_panel_ids, all_model_names
+                )
+            except Exception:
+                st.session_state[mini_cache_key] = {}
+    mini_predictions = st.session_state.get(mini_cache_key, {})
+
+    col_best, col_worst = st.columns(2)
+    with col_best:
+        st.markdown("**Топ-3 (лучший test)**")
+        _render_mini_charts(
+            project_id,
+            top3,
+            val_periods,
+            test_periods,
+            key_prefix="top",
+            predictions=mini_predictions,
+            selected_models=selected_models,
+        )
+    with col_worst:
+        st.markdown("**Антитоп-3 (худший test)**")
+        _render_mini_charts(
+            project_id,
+            bot3,
+            val_periods,
+            test_periods,
+            key_prefix="bot",
+            predictions=mini_predictions,
+            selected_models=selected_models,
+        )
+
+    st.divider()
+
+    # Результаты по панелям для лучшей модели
+    st.markdown("**Результаты по панелям (лучшая модель)**")
+    selection = st.dataframe(
+        panel_df,
+        width="stretch",
+        hide_index=True,
+        selection_mode="single-row",
+        on_select="rerun",
+    )
+
+    selected_rows = selection.selection.get("rows", [])
+    if selected_rows:
+        panel_id = str(panel_df.iloc[selected_rows[0]]["Panel ID"])
+        _render_panel_chart(
+            project_id, panel_id, val_periods, test_periods, all_model_names, selected_models
+        )
+
+    # Feature importance для CatBoost моделей
+    fi_models = [mr for mr in sorted_mrs if mr.get("feature_importance")]
+    if fi_models:
+        st.divider()
+        st.markdown("**Важность признаков**")
+        for mr in fi_models:
+            label = _MODEL_LABELS.get(mr["name"], mr["name"])
+            with st.expander(f"{label}", expanded=len(fi_models) == 1):
+                fi = mr["feature_importance"]
+                fi_df = pd.DataFrame(fi, columns=["Признак", "Важность"])
+                top_fi = fi_df.head(20)
+                fig = px.bar(
+                    top_fi,
+                    x="Важность",
+                    y="Признак",
+                    orientation="h",
+                    color="Важность",
+                    color_continuous_scale="Blues",
+                )
+                fig.update_layout(
+                    yaxis=dict(autorange="reversed"),
+                    height=max(300, len(top_fi) * 25),
+                    margin=dict(l=0, r=0, t=10, b=0),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    font_color="#FAFAFA",
+                    coloraxis_showscale=False,
+                    showlegend=False,
+                )
+                st.plotly_chart(fig, width="stretch")
+
+    # Loss chart для моделей с историей обучения (TS2Vec)
+    loss_models = [mr for mr in sorted_mrs if mr.get("loss_history") or mr.get("loss_histories")]
+    if loss_models:
+        st.divider()
+        st.markdown("**Loss обучения**")
+        for mr in loss_models:
+            label = _MODEL_LABELS.get(mr["name"], mr["name"])
+            with st.expander(f"{label}", expanded=len(loss_models) == 1):
+                if mr.get("loss_histories"):
+                    hists = [
+                        [(int(ep), float(lv)) for ep, lv in h] for h in mr["loss_histories"]
+                    ]
+                    _render_loss_chart(
+                        loss_histories=hists, chart_key=f"loss_{mr['name']}"
+                    )
+                else:
+                    loss_hist = [(int(ep), float(lv)) for ep, lv in mr["loss_history"]]
+                    best = min(lv for _, lv in loss_hist)
+                    _render_loss_chart(loss_hist, best, chart_key=f"loss_{mr['name']}")
+
+    # Hyperopt результаты
+    hp_data = automl_result.get("hyperopt")
+    if hp_data and hp_data.get("trials"):
+        st.divider()
+        st.markdown("**Hyperopt (Optuna)**")
+        _render_hyperopt_results(hp_data)
+
+
+def _render_hyperopt_results(hp_data: dict) -> None:
+    """Визуализация результатов Optuna."""
+    trials = hp_data["trials"]
+    best_value = hp_data["best_value"]
+    best_params = hp_data["best_params"]
+
+    # Лучшие параметры
+    st.success(f"Лучший Val MAPE: **{best_value:.4f}**")
+    param_cols = st.columns(len(best_params))
+    for col, (k, v) in zip(param_cols, best_params.items()):
+        if k == "verbose":
+            continue
+        fmt = f"{v:.4f}" if isinstance(v, float) else str(v)
+        col.metric(k, fmt)
+
+    trials_df = pd.DataFrame(trials)
+
+    col_hist, col_param = st.columns(2)
+
+    with col_hist:
+        # Optimization history
+        st.markdown("**История оптимизации**")
+        best_so_far = []
+        running_best = float("inf")
+        for _, row in trials_df.iterrows():
+            running_best = min(running_best, row["value"])
+            best_so_far.append(running_best)
+        trials_df["best_so_far"] = best_so_far
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=trials_df["number"],
+                y=trials_df["value"],
+                mode="markers",
+                name="Trial MAPE",
+                marker=dict(color="#E67E22", size=6, opacity=0.6),
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=trials_df["number"],
+                y=trials_df["best_so_far"],
+                mode="lines",
+                name="Best MAPE",
+                line=dict(color="#2ECC71", width=2),
+            )
+        )
+        fig.update_layout(
+            height=300,
+            margin=dict(l=0, r=0, t=10, b=0),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font_color="#FAFAFA",
+            xaxis=dict(title="Trial", showgrid=False),
+            yaxis=dict(title="Val MAPE", showgrid=True, gridcolor="#333"),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig, width="stretch", key="hyperopt_history")
+
+    with col_param:
+        # Важность параметров
+        imp = hp_data.get("param_importance", {})
+        if imp:
+            st.markdown("**Важность параметров**")
+            imp_df = pd.DataFrame(
+                sorted(imp.items(), key=lambda x: x[1], reverse=True),
+                columns=["Параметр", "Важность"],
+            )
+            fig = px.bar(
+                imp_df,
+                x="Важность",
+                y="Параметр",
+                orientation="h",
+                color="Важность",
+                color_continuous_scale="Blues",
+            )
+            fig.update_layout(
+                height=300,
+                margin=dict(l=0, r=0, t=10, b=0),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="#FAFAFA",
+                yaxis=dict(autorange="reversed"),
+                coloraxis_showscale=False,
+                showlegend=False,
+            )
+            st.plotly_chart(fig, width="stretch", key="hyperopt_importance")
+
+
+def _render_panel_chart(
+    project_id: str,
+    panel_id: str,
+    val_periods: int,
+    test_periods: int,
+    all_models: list[str],
+    selected_models: list[str],
+) -> None:
+    try:
+        data = get_panels_data(project_id, [panel_id])
+    except Exception:
+        return
+    if not data:
+        return
+    series = data[0]
+    dates, values = series["dates"], series["values"]
+    n = len(dates)
+    train_end = n - val_periods - test_periods
+    val_end = n - test_periods
+
+    # Загружаем предсказания один раз и кешируем в session_state
+    cache_key = f"automl_preds_{project_id}_{panel_id}"
+    if cache_key not in st.session_state and selected_models:
+        with st.spinner("Загрузка предсказаний..."):
+            try:
+                st.session_state[cache_key] = get_automl_predictions(
+                    project_id, [panel_id], all_models
+                )
+            except Exception:
+                st.session_state[cache_key] = {}
+    predictions = st.session_state.get(cache_key, {})
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=dates,
+            y=values,
+            mode="lines",
+            name="Фактическое",
+            line=dict(color="#7C6AF7", width=1.5),
+        )
+    )
+
+    for model in selected_models:
+        model_preds = predictions.get(model, {}).get(panel_id, [])
+        if model_preds:
+            pred_dates = [p["date"] for p in model_preds if p["split"] in ("val", "test")]
+            pred_vals = [p["y_pred"] for p in model_preds if p["split"] in ("val", "test")]
+            if pred_dates:
+                fig.add_trace(
+                    go.Scatter(
+                        x=pred_dates,
+                        y=pred_vals,
+                        mode="lines",
+                        name=_MODEL_LABELS.get(model, model),
+                        line=dict(color=_MODEL_COLORS.get(model, "#aaa"), width=1.5, dash="dot"),
+                    )
+                )
+
+    if train_end > 0:
+        fig.add_vrect(
+            x0=dates[0],
+            x1=dates[train_end] if train_end < n else dates[-1],
+            fillcolor=_TRAIN_COLOR,
+            line_width=0,
+            annotation_text="train",
+            annotation_position="top left",
+        )
+    if 0 < train_end < val_end:
+        fig.add_vrect(
+            x0=dates[train_end],
+            x1=dates[val_end] if val_end < n else dates[-1],
+            fillcolor=_VAL_COLOR,
+            line_width=0,
+            annotation_text="val",
+            annotation_position="top left",
+        )
+    if val_end < n:
+        fig.add_vrect(
+            x0=dates[val_end],
+            x1=dates[-1],
+            fillcolor=_TEST_COLOR,
+            line_width=0,
+            annotation_text="test",
+            annotation_position="top left",
+        )
+    fig.update_layout(
+        title=f"Панель {panel_id}",
+        height=320,
+        margin=dict(l=0, r=0, t=40, b=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font_color="#FAFAFA",
+        xaxis=dict(showgrid=False),
+        yaxis=dict(showgrid=True, gridcolor="#333"),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    st.plotly_chart(fig, width="stretch", key=f"panel_chart_{panel_id}")
+
+
+def _render_mini_charts(
+    project_id: str,
+    panel_ids: list[str],
+    val_periods: int,
+    test_periods: int,
+    key_prefix: str = "",
+    predictions: dict | None = None,
+    selected_models: list[str] | None = None,
+) -> None:
+    if not panel_ids:
+        return
+    try:
+        data = get_panels_data(project_id, panel_ids)
+    except Exception:
+        return
+    for series in data:
+        panel_id = str(series["panel_id"])
+        dates, values = series["dates"], series["values"]
+        n = len(dates)
+        train_end = n - val_periods - test_periods
+        val_end = n - test_periods
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=dates,
+                y=values,
+                mode="lines",
+                name="Фактическое",
+                line=dict(color="#7C6AF7", width=1),
+            )
+        )
+
+        if predictions and selected_models:
+            for model in selected_models:
+                model_preds = predictions.get(model, {}).get(panel_id, [])
+                pred_dates = [p["date"] for p in model_preds if p["split"] in ("val", "test")]
+                pred_vals = [p["y_pred"] for p in model_preds if p["split"] in ("val", "test")]
+                if pred_dates:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=pred_dates,
+                            y=pred_vals,
+                            mode="lines",
+                            name=_MODEL_LABELS.get(model, model),
+                            line=dict(
+                                color=_MODEL_COLORS.get(model, "#4CAF50"), width=1, dash="dot"
+                            ),
+                        )
+                    )
+
+        if train_end > 0:
+            fig.add_vrect(
+                x0=dates[0],
+                x1=dates[train_end] if train_end < n else dates[-1],
+                fillcolor=_TRAIN_COLOR,
+                line_width=0,
+            )
+        if 0 < train_end < val_end:
+            fig.add_vrect(
+                x0=dates[train_end],
+                x1=dates[val_end] if val_end < n else dates[-1],
+                fillcolor=_VAL_COLOR,
+                line_width=0,
+            )
+        if val_end < n:
+            fig.add_vrect(x0=dates[val_end], x1=dates[-1], fillcolor=_TEST_COLOR, line_width=0)
+        fig.update_layout(
+            title=f"ID: {panel_id}",
+            height=200,
+            margin=dict(l=0, r=0, t=30, b=0),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font_color="#FAFAFA",
+            xaxis=dict(showgrid=False, showticklabels=False),
+            yaxis=dict(showgrid=False),
+            showlegend=bool(selected_models),
+            legend=dict(
+                orientation="h", yanchor="top", y=-0.05, xanchor="left", x=0, font=dict(size=10)
+            ),
+        )
+        st.plotly_chart(fig, width="stretch", key=f"mini_{key_prefix}_{panel_id}")
+
+
+def render() -> None:
+    """Отображает экран AutoML."""
+    project = get_current_project()
+    if project is None:
+        st.warning("Проект не выбран")
+        return
+
+    result = project.get("result") or {}
+    split_result = result.get("split", {})
+    automl_result = result.get("automl")
+    project_id = str(project.get("project_id", ""))
+
+    st.title("Моделирование")
+
+    # Если уже есть результат automl — показываем результаты (если не запрошен перезапуск)
+    rerun_key = f"automl_rerun_{project_id}"
+    if (
+        automl_result
+        and not st.session_state.get("automl_job_id")
+        and not st.session_state.get(rerun_key)
+    ):
+        _render_results(project, automl_result, split_result)
+        st.divider()
+        if st.button("🔄 Перезапустить моделирование"):
+            st.session_state[rerun_key] = True
+            st.rerun()
+        return
+
+    # Если идёт polling — показываем прогресс
+    if "automl_job_id" in st.session_state:
+        job_id = st.session_state.automl_job_id
+        models = st.session_state.get("automl_models")
+        if not models:
+            # Восстанавливаем список моделей из событий прогресса (при возврате в проект)
+            try:
+                events = get_automl_progress(project_id, job_id)
+                started = [e["model"] for e in events if e.get("type") == "model_start"]
+                # total из первого события model_start содержит общее кол-во моделей,
+                # но сами модели проще взять из шагов job'а
+                job_data = get_job(job_id)
+                step_models = [
+                    s["name"].removeprefix("train_")
+                    for s in (job_data.get("steps") or [])
+                    if s.get("name", "").startswith("train_")
+                ]
+                models = list(dict.fromkeys(started + step_models)) or [
+                    "seasonal_naive",
+                    "catboost",
+                ]
+                st.session_state["automl_models"] = models
+            except Exception:
+                models = ["seasonal_naive", "catboost"]
+        st.markdown("**Обучение моделей...**")
+        done = _render_progress(project_id, job_id, models)
+        if done:
+            try:
+                job = get_job(job_id)
+                new_result = {**result, **job["result"]}
+                updated_project = {**project, "result": new_result}
+                st.session_state.current_project = {**updated_project, "project_id": project_id}
+            except Exception:
+                pass
+            del st.session_state.automl_job_id
+            st.rerun()
+        return
+
+    # Конфигурация и кнопка запуска
+    has_clustering = bool(result.get("clustering"))
+    cfg = _render_config(has_clustering=has_clustering)
+
+    # Частота — из override на экране качества или из preprocessing result
+    ts_from_prep = result.get("ts") or {}
+    freq_override = st.session_state.get(f"freq_override_{project_id}")
+    prep_freq = ts_from_prep.get("freq")
+    effective_freq: str | None = freq_override if freq_override else prep_freq
+    if prep_freq:
+        prep_season = ts_from_prep.get("season_length", 12)
+        effective_season = _FREQ_SEASON.get(effective_freq or prep_freq, prep_season)
+        freq_lbl = _FREQ_LABELS.get(effective_freq or prep_freq, effective_freq or prep_freq)
+        col_f1, col_f2 = st.columns([2, 1])
+        col_f1.metric("Частота данных", f"{freq_lbl} ({effective_freq or prep_freq})")
+        col_f2.metric("Сезонный период", effective_season)
+        if freq_override and freq_override != prep_freq:
+            st.caption(
+                f"Автоопределено: {_FREQ_LABELS.get(prep_freq, prep_freq)} ({prep_freq}) — изменить на экране «Качество данных»"
+            )
+        else:
+            st.caption("Изменить на экране «Качество данных»")
+
+    st.divider()
+    if not cfg["models"]:
+        st.warning("Выберите хотя бы одну модель")
+        return
+
+    col_run, col_dl = st.columns([4, 1])
+    yaml_bytes = yaml.dump(cfg, allow_unicode=True, default_flow_style=False).encode()
+    col_dl.download_button(
+        "Сохранить конфиг", yaml_bytes, "automl_config.yaml", "text/yaml", width="stretch"
+    )
+
+    if col_run.button("▶ Запустить AutoML", type="primary", width="stretch"):
+        with st.spinner("Запускаю..."):
+            try:
+                job = run_automl(
+                    project_id,
+                    models=cfg["models"],
+                    selection_metric=cfg["selection_metric"],
+                    use_hyperopt=cfg["use_hyperopt"],
+                    freq=effective_freq,
+                    n_trials=cfg["n_trials"],
+                    hyperopt_timeout=cfg["hyperopt_timeout"],
+                    catboost_params=cfg["catboost_params"],
+                    autoarima_approximation=cfg["autoarima_approximation"],
+                    feature_params=cfg["feature_params"],
+                    chronos_params=cfg["chronos_params"],
+                    ts2vec_params=cfg["ts2vec_params"],
+                    patchtst_params=cfg["patchtst_params"],
+                    hyperopt_ranges=cfg.get("hyperopt_ranges"),
+                )
+            except Exception as e:
+                st.error(f"Ошибка запуска: {e}")
+                return
+        st.session_state.automl_job_id = str(job["id"])
+        st.session_state.automl_models = cfg["models"]
+        st.session_state.pop(rerun_key, None)
+        st.rerun()

@@ -1,6 +1,7 @@
 import datetime as dt
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Generic, Literal, TypeAlias, TypeVar
 
 import numpy as np
@@ -11,8 +12,31 @@ from sklearn.preprocessing import StandardScaler
 AggMethod: TypeAlias = Literal["sum", "mean", "first", "last", "min", "max"] | Callable
 ClipBounds: TypeAlias = dict[str, dict[int | str, tuple[float, float]]]
 PanelScalers: TypeAlias = dict[str, dict[int, StandardScaler]]
-MetricType: TypeAlias = Literal["mape", "rmse", "mae", "r2"]
-ModelType: TypeAlias = Literal["ridge", "catboost", "mlp"]
+
+
+class MetricType(str, Enum):
+    mape = "mape"
+    rmse = "rmse"
+    mae = "mae"
+    r2 = "r2"
+
+
+class ModelType(str, Enum):
+    seasonal_naive = "seasonal_naive"
+    catboost = "catboost"
+    catboost_per_panel = "catboost_per_panel"
+    catboost_clustered = "catboost_clustered"
+    autoarima = "autoarima"
+    autoets = "autoets"
+    autotheta = "autotheta"
+    mstl = "mstl"
+    chronos = "chronos"
+    ts2vec = "ts2vec"
+    ts2vec_clustered = "ts2vec_clustered"
+    patchtst = "patchtst"
+
+
+QualityStatus: TypeAlias = Literal["green", "yellow", "red"]
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -192,19 +216,19 @@ class EvaluationResults:
 
     def get_overall_metrics_df(self) -> pd.DataFrame:
         """Возвращает общие метрики в виде DataFrame."""
-        data = []
+        data: list[dict] = []
         for split_eval in self.splits:
-            row = {"split": split_eval.split_name}
+            row: dict = {"split": split_eval.split_name}
             row.update(split_eval.overall_metrics.to_dict())
             data.append(row)
         return pd.DataFrame(data)
 
     def get_panel_metrics_df(self) -> pd.DataFrame:
         """Возвращает метрики по панелям в виде DataFrame."""
-        data = []
+        data: list[dict] = []
         for split_eval in self.splits:
             for panel_metric in split_eval.panel_metrics:
-                row = {
+                row: dict = {
                     "split": panel_metric.split,
                     "panel_id": panel_metric.panel_id,
                 }
@@ -231,6 +255,123 @@ class PanelPredictions:
     split: str
 
 
+@dataclass
+class FiltrationStepReport:
+    """Отчёт об одном шаге фильтрации."""
+
+    step: str
+    reason: str
+    dropped_ids: set[int | str]
+
+
+@dataclass
+class FiltrationResult:
+    """Результат фильтрации с отслеживанием причин отфильтровки."""
+
+    df: pd.DataFrame
+    steps: list[FiltrationStepReport]
+
+    def to_report_df(self) -> pd.DataFrame:
+        """Возвращает таблицу с отфильтрованными панелями и причинами."""
+        rows: list[dict[str, int | str]] = []
+        for step_report in self.steps:
+            rows.extend(
+                {
+                    "panel_id": panel_id,
+                    "step": step_report.step,
+                    "reason": step_report.reason,
+                }
+                for panel_id in step_report.dropped_ids
+            )
+        return pd.DataFrame(rows, columns=["panel_id", "step", "reason"])
+
+    @property
+    def total_dropped(self) -> int:
+        """Возвращает общее количество уникальных отфильтрованных панелей."""
+        all_dropped: set[int | str] = set()
+        for step_report in self.steps:
+            all_dropped |= step_report.dropped_ids
+        return len(all_dropped)
+
+    def summary(self) -> dict[str, int]:
+        """Возвращает сводку по шагам: имя шага -> количество отфильтрованных."""
+        return {step_report.step: len(step_report.dropped_ids) for step_report in self.steps}
+
+
+@dataclass
+class ModelResult:
+    """Результат обучения и оценки одной модели."""
+
+    name: str
+    evaluation: "EvaluationResults"
+    params: BaseModel
+    feature_importance: list[tuple[str, float]] | None = None
+    loss_history: list[tuple[int, float]] | None = None
+    loss_histories: list[list[tuple[int, float]]] | None = None
+
+
+@dataclass
+class AutoMLResult:
+    """Результат AutoML: лучшая модель и все результаты."""
+
+    best: ModelResult
+    all_results: list[ModelResult]
+    selection_metric: MetricType
+    selection_split: str
+
+
+@dataclass
+class CheckResult:
+    """Результат одной диагностической проверки."""
+
+    name: str
+    status: QualityStatus
+    message: str
+    value: float | None
+
+    @property
+    def passed(self) -> bool:
+        """Возвращает True если проверка пройдена (статус green)."""
+        return self.status == "green"
+
+
+@dataclass
+class PanelDiagnostics:
+    """Результат диагностики одной панели."""
+
+    panel_id: int | str
+    overall_status: QualityStatus
+    checks: list[CheckResult]
+
+
+@dataclass
+class DiagnosticsResult:
+    """Результат диагностики всего датасета."""
+
+    panels: list[PanelDiagnostics]
+
+    def to_df(self) -> pd.DataFrame:
+        """Возвращает результаты диагностики в виде широкого DataFrame."""
+        rows: list[dict[str, object]] = []
+        for panel in self.panels:
+            row: dict[str, object] = {
+                "panel_id": panel.panel_id,
+                "overall_status": panel.overall_status,
+            }
+            for check in panel.checks:
+                row[f"{check.name}_passed"] = check.passed
+                row[f"{check.name}_value"] = check.value
+            rows.append(row)
+        return pd.DataFrame(rows)
+
+    def summary(self) -> dict[str, int]:
+        """Возвращает количество панелей по статусам."""
+        counts: dict[str, int] = {"green": 0, "yellow": 0, "red": 0}
+        for panel in self.panels:
+            counts[panel.overall_status] += 1
+        return counts
+
+
 class CatBoostParameters(BaseModel):
     """Параметры для CatBoost регрессии."""
 
@@ -240,7 +381,7 @@ class CatBoostParameters(BaseModel):
     l2_leaf_reg: float = Field(default=3.0, description="L2 регуляризация")
     subsample: float = Field(default=0.8, description="Доля samples для обучения")
     rsm: float = Field(default=0.8, description="Доля features для обучения")
-    random_seed: int = Field(default=420, description="Random seed")
+    random_seed: int = Field(default=42, description="Random seed")
     verbose: int | bool = Field(default=100, description="Частота вывода логов")
     loss_function: str = Field(default="RMSE", description="Функция потерь")
 

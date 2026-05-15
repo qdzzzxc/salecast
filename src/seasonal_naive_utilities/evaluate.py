@@ -20,10 +20,10 @@ def evaluate_seasonal_naive(
 
     for split_name, split_df in splits.splits:
         is_train = split_name == "train"
-        
+
         if is_train and skip_train_warmup:
             split_df = _filter_warmup_period(split_df, cols.id, model.seasonal_period)
-        
+
         split_df = split_df.reset_index(drop=True)
         result_df = split_df[[cols.id, target]].copy()
         y_pred = model.predict(split_df, cols.id, target, is_train=is_train)
@@ -42,7 +42,4 @@ def evaluate_seasonal_naive(
 
 def _filter_warmup_period(df: pd.DataFrame, panel_column: str, warmup: int) -> pd.DataFrame:
     """Удаляет первые warmup точек для каждой панели."""
-    return (
-        df.groupby(panel_column, group_keys=False)
-        .apply(lambda g: g.iloc[warmup:])
-    )
+    return df.groupby(panel_column, group_keys=False).apply(lambda g: g.iloc[warmup:])

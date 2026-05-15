@@ -72,6 +72,76 @@ def _add_panel_features(
     return result
 
 
+def _add_trend_features(
+    group: pd.DataFrame,
+    target: str,
+    window: int,
+) -> pd.DataFrame:
+    """Добавляет признак тренда — наклон линейной регрессии на скользящем окне.
+
+    shift(1): используем только прошлые значения, чтобы не было утечки.
+    """
+    result = group.copy()
+    series = result[target].shift(1)
+
+    def _slope(values: np.ndarray) -> float:
+        n = len(values)
+        if n < 2 or np.all(np.isnan(values)):
+            return np.nan
+        x = np.arange(n, dtype=float)
+        mask = ~np.isnan(values)
+        if mask.sum() < 2:
+            return np.nan
+        x_m, y_m = x[mask], values[mask]
+        x_mean = x_m.mean()
+        denom = ((x_m - x_mean) ** 2).sum()
+        if denom == 0:
+            return 0.0
+        return float(((x_m - x_mean) * (y_m - y_m.mean())).sum() / denom)
+
+    result[f"{target}_trend_{window}"] = series.rolling(window, min_periods=2).apply(
+        _slope, raw=True
+    )
+    return result
+
+
+def _add_cdf_features(
+    group: pd.DataFrame,
+    target: str,
+    decay: float,
+) -> pd.DataFrame:
+    """Добавляет CDF-признак — взвешенная доля прошлых значений ≤ текущему.
+
+    shift(1): используем только прошлые значения, чтобы не было утечки.
+    decay: вес убывает как decay^(n-1-i) для более старых точек.
+    """
+    result = group.copy()
+    series = result[target].shift(1).values
+    n = len(series)
+    cdf_vals = np.full(n, np.nan)
+
+    for i in range(1, n):
+        past = series[:i]
+        valid = ~np.isnan(past)
+        if not valid.any():
+            continue
+        past_valid = past[valid]
+        idx = np.where(valid)[0]
+        # weights: decay^(age), age=0 для самой последней точки
+        ages = i - 1 - idx
+        weights = decay**ages
+        w_total = weights.sum()
+        if w_total == 0:
+            continue
+        current = series[i]
+        if np.isnan(current):
+            continue
+        cdf_vals[i] = (weights[past_valid <= current]).sum() / w_total
+
+    result[f"{target}_cdf"] = cdf_vals
+    return result
+
+
 def _add_calendar_features(
     group: pd.DataFrame,
     date_column: str,
@@ -86,7 +156,7 @@ def _add_calendar_features(
     return result
 
 
-def build_monthly_features(
+def build_ts_features(
     df: pd.DataFrame,
     settings: Settings,
     drop_na: bool = False,
@@ -104,10 +174,26 @@ def build_monthly_features(
     windows = settings.downstream.windows
     ema_spans = settings.downstream.ema_spans
 
+    # Предвычисляем MSTL seasonal если включено
+    mstl_seasonal: dict[str, np.ndarray] | None = None
+    if settings.downstream.use_mstl_seasonal:
+        from src.mstl_features import decompose_mstl
+
+        mstl_seasonal = {}
+        for pid, grp in df.groupby(panel_col):
+            vals = grp[target].values
+            try:
+                decomp = decompose_mstl(vals, freq=settings.ts.freq)
+                mstl_seasonal[pid] = decomp["seasonal"]
+            except Exception:
+                mstl_seasonal[pid] = np.zeros(len(vals))
+
     features = []
 
     panels = df.groupby(panel_col)
-    for _, group in tqdm(panels, total=df[panel_col].nunique(), desc="Processing panels", disable=disable_tqdm):
+    for pid, group in tqdm(
+        panels, total=df[panel_col].nunique(), desc="Processing panels", disable=disable_tqdm
+    ):
         group = group.copy()
 
         group = _add_lag_features(group, target, lags)
@@ -116,6 +202,12 @@ def build_monthly_features(
         group = _add_diff_features(group, target)
         group = _add_panel_features(group, target)
         group = _add_calendar_features(group, date_col)
+        if settings.downstream.use_trend:
+            group = _add_trend_features(group, target, settings.downstream.trend_window)
+        if settings.downstream.use_cdf:
+            group = _add_cdf_features(group, target, settings.downstream.cdf_decay)
+        if mstl_seasonal is not None and pid in mstl_seasonal:
+            group[f"{target}_mstl_seasonal"] = mstl_seasonal[pid]
 
         features.append(group)
 

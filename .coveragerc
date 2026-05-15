@@ -1,0 +1,13 @@
+[run]
+source = src
+omit =
+    src/visualization/*
+    src/ts_features.py
+    src/utilities/*
+
+[report]
+show_missing = True
+skip_covered = False
+
+[html]
+directory = htmlcov

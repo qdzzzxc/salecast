@@ -1,0 +1,486 @@
+import asyncio
+import os
+from typing import Any
+
+import aiohttp
+
+_API_URL = os.getenv("API_URL", "http://localhost:8000")
+
+
+def _run(coro):
+    """Запускает корутину синхронно."""
+    return asyncio.run(coro)
+
+
+async def _create_project(
+    name: str,
+    file_bytes: bytes,
+    filename: str,
+    panel_col: str,
+    date_col: str,
+    value_col: str,
+) -> dict[str, Any]:
+    """Создаёт проект через API."""
+    async with aiohttp.ClientSession() as session:
+        form = aiohttp.FormData()
+        form.add_field("file", file_bytes, filename=filename, content_type="text/csv")
+        async with session.post(
+            f"{_API_URL}/projects",
+            data=form,
+            params={
+                "name": name,
+                "panel_col": panel_col,
+                "date_col": date_col,
+                "value_col": value_col,
+            },
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+async def _list_projects() -> list[dict[str, Any]]:
+    """Получает список проектов из API."""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{_API_URL}/projects") as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+async def _get_job(job_id: str) -> dict[str, Any]:
+    """Получает статус задачи из API."""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{_API_URL}/jobs/{job_id}") as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def create_project(
+    name: str,
+    file_bytes: bytes,
+    filename: str,
+    panel_col: str,
+    date_col: str,
+    value_col: str,
+) -> dict[str, Any]:
+    """Создаёт проект через API (синхронная обёртка)."""
+    return _run(_create_project(name, file_bytes, filename, panel_col, date_col, value_col))
+
+
+def list_projects() -> list[dict[str, Any]]:
+    """Получает список проектов (синхронная обёртка)."""
+    return _run(_list_projects())
+
+
+def get_job(job_id: str) -> dict[str, Any]:
+    """Получает статус задачи (синхронная обёртка)."""
+    return _run(_get_job(job_id))
+
+
+async def _get_project_preview(project_id: str) -> dict[str, Any]:
+    """Получает статистику по сырым панелям проекта."""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{_API_URL}/projects/{project_id}/preview") as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_project_preview(project_id: str) -> dict[str, Any]:
+    """Получает превью проекта (синхронная обёртка)."""
+    return _run(_get_project_preview(project_id))
+
+
+async def _run_project(project_id: str, val_periods: int, test_periods: int) -> dict[str, Any]:
+    """Запускает обработку проекта через API."""
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{_API_URL}/projects/{project_id}/run",
+            json={"val_periods": val_periods, "test_periods": test_periods},
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def run_project(project_id: str, val_periods: int, test_periods: int) -> dict[str, Any]:
+    """Запускает обработку проекта (синхронная обёртка)."""
+    return _run(_run_project(project_id, val_periods, test_periods))
+
+
+async def _delete_project(project_id: str) -> None:
+    """Удаляет проект через API."""
+    async with aiohttp.ClientSession() as session:
+        async with session.delete(f"{_API_URL}/projects/{project_id}") as resp:
+            resp.raise_for_status()
+
+
+def delete_project(project_id: str) -> None:
+    """Удаляет проект (синхронная обёртка)."""
+    _run(_delete_project(project_id))
+
+
+async def _run_automl(
+    project_id: str,
+    models: list[str],
+    selection_metric: str,
+    use_hyperopt: bool,
+    freq: str | None = None,
+    n_trials: int = 30,
+    hyperopt_timeout: int | None = None,
+    catboost_params: dict | None = None,
+    autoarima_approximation: bool = True,
+    feature_params: dict | None = None,
+    chronos_params: dict | None = None,
+    ts2vec_params: dict | None = None,
+    patchtst_params: dict | None = None,
+    hyperopt_ranges: dict | None = None,
+) -> dict[str, Any]:
+    """Запускает AutoML через API."""
+    payload: dict = {
+        "models": models,
+        "selection_metric": selection_metric,
+        "use_hyperopt": use_hyperopt,
+        "n_trials": n_trials,
+        "autoarima_approximation": autoarima_approximation,
+    }
+    if hyperopt_timeout is not None:
+        payload["hyperopt_timeout"] = hyperopt_timeout
+    if freq is not None:
+        payload["freq"] = freq
+    if catboost_params is not None:
+        payload["catboost_params"] = catboost_params
+    if feature_params is not None:
+        payload["feature_params"] = feature_params
+    if chronos_params is not None:
+        payload["chronos_params"] = chronos_params
+    if ts2vec_params is not None:
+        payload["ts2vec_params"] = ts2vec_params
+    if patchtst_params is not None:
+        payload["patchtst_params"] = patchtst_params
+    if hyperopt_ranges is not None:
+        payload["hyperopt_ranges"] = hyperopt_ranges
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{_API_URL}/projects/{project_id}/run_automl",
+            json=payload,
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def run_automl(
+    project_id: str,
+    models: list[str],
+    selection_metric: str,
+    use_hyperopt: bool,
+    freq: str | None = None,
+    n_trials: int = 30,
+    hyperopt_timeout: int | None = None,
+    catboost_params: dict | None = None,
+    autoarima_approximation: bool = True,
+    feature_params: dict | None = None,
+    chronos_params: dict | None = None,
+    ts2vec_params: dict | None = None,
+    patchtst_params: dict | None = None,
+    hyperopt_ranges: dict | None = None,
+) -> dict[str, Any]:
+    """Запускает AutoML (синхронная обёртка)."""
+    return _run(
+        _run_automl(
+            project_id,
+            models,
+            selection_metric,
+            use_hyperopt,
+            freq,
+            n_trials,
+            hyperopt_timeout,
+            catboost_params,
+            autoarima_approximation,
+            feature_params,
+            chronos_params,
+            ts2vec_params,
+            patchtst_params,
+            hyperopt_ranges,
+        )
+    )
+
+
+async def _get_automl_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            f"{_API_URL}/projects/{project_id}/automl_progress/{job_id}"
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_automl_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
+    return _run(_get_automl_progress(project_id, job_id))
+
+
+async def _get_forecast_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            f"{_API_URL}/projects/{project_id}/forecast_progress/{job_id}"
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_forecast_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
+    return _run(_get_forecast_progress(project_id, job_id))
+
+
+async def _get_panels_data(project_id: str, ids: list[str]) -> list[dict]:
+    """Загружает данные панелей из API."""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            f"{_API_URL}/projects/{project_id}/panels",
+            params={"ids": ",".join(ids)},
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_panels_data(project_id: str, ids: list[str]) -> list[dict]:
+    """Загружает данные панелей (синхронная обёртка)."""
+    return _run(_get_panels_data(project_id, ids))
+
+
+async def _run_forecast(
+    project_id: str,
+    model_name: str,
+    horizon: int,
+    panel_ids: list[str],
+) -> dict[str, Any]:
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{_API_URL}/projects/{project_id}/run_forecast",
+            json={"model_name": model_name, "horizon": horizon, "panel_ids": panel_ids},
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def run_forecast(
+    project_id: str,
+    model_name: str,
+    horizon: int,
+    panel_ids: list[str],
+) -> dict[str, Any]:
+    return _run(_run_forecast(project_id, model_name, horizon, panel_ids))
+
+
+async def _get_forecast_data(
+    project_id: str,
+    panel_ids: list[str] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    params: dict = {}
+    if panel_ids:
+        params["panel_ids"] = ",".join(panel_ids)
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            f"{_API_URL}/projects/{project_id}/forecast_data",
+            params=params,
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_forecast_data(
+    project_id: str,
+    panel_ids: list[str] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    return _run(_get_forecast_data(project_id, panel_ids))
+
+
+async def _get_forecast_csv_bytes(project_id: str) -> bytes:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{_API_URL}/projects/{project_id}/forecast_csv") as resp:
+            resp.raise_for_status()
+            return await resp.read()
+
+
+def get_forecast_csv_bytes(project_id: str) -> bytes:
+    return _run(_get_forecast_csv_bytes(project_id))
+
+
+async def _skip_model(project_id: str, job_id: str, model_name: str) -> dict[str, str]:
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{_API_URL}/projects/{project_id}/skip_model",
+            json={"job_id": job_id, "model_name": model_name},
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def skip_model(project_id: str, job_id: str, model_name: str) -> dict[str, str]:
+    """Отмечает текущую обучаемую модель как пропущенную (синхронная обёртка)."""
+    return _run(_skip_model(project_id, job_id, model_name))
+
+
+async def _get_automl_predictions(
+    project_id: str,
+    panel_ids: list[str],
+    models: list[str] | None = None,
+) -> dict[str, dict[str, list[dict]]]:
+    params: dict = {"panel_ids": ",".join(panel_ids)}
+    if models:
+        params["models"] = ",".join(models)
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            f"{_API_URL}/projects/{project_id}/automl_predictions",
+            params=params,
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_automl_predictions(
+    project_id: str,
+    panel_ids: list[str],
+    models: list[str] | None = None,
+) -> dict[str, dict[str, list[dict]]]:
+    """Возвращает предсказания моделей для набора панелей (синхронная обёртка)."""
+    return _run(_get_automl_predictions(project_id, panel_ids, models))
+
+
+async def _run_clustering(
+    project_id: str,
+    n_clusters: int = 5,
+    method: str = "kmeans",
+    use_mstl: bool = False,
+    feature_mode: str = "all",
+) -> dict[str, Any]:
+    """Запускает кластеризацию через API."""
+    payload: dict = {"n_clusters": n_clusters, "method": method}
+    if use_mstl:
+        payload["use_mstl"] = True
+    if feature_mode != "all":
+        payload["feature_mode"] = feature_mode
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{_API_URL}/projects/{project_id}/run_clustering",
+            json=payload,
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def run_clustering(
+    project_id: str,
+    n_clusters: int = 5,
+    method: str = "kmeans",
+    use_mstl: bool = False,
+    feature_mode: str = "all",
+) -> dict[str, Any]:
+    """Запускает кластеризацию (синхронная обёртка)."""
+    return _run(_run_clustering(project_id, n_clusters, method, use_mstl, feature_mode))
+
+
+async def _run_cv(
+    project_id: str,
+    model_type: str,
+    n_folds: int = 5,
+    ensemble_models: list[str] | None = None,
+    ensemble_method: str = "weighted_avg",
+) -> dict[str, Any]:
+    payload: dict = {"model_type": model_type, "n_folds": n_folds}
+    if ensemble_models:
+        payload["ensemble_models"] = ensemble_models
+        payload["ensemble_method"] = ensemble_method
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{_API_URL}/projects/{project_id}/run_cv",
+            json=payload,
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def run_cv(
+    project_id: str,
+    model_type: str,
+    n_folds: int = 5,
+    ensemble_models: list[str] | None = None,
+    ensemble_method: str = "weighted_avg",
+) -> dict[str, Any]:
+    return _run(_run_cv(project_id, model_type, n_folds, ensemble_models, ensemble_method))
+
+
+async def _get_cv_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{_API_URL}/projects/{project_id}/cv_progress/{job_id}") as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_cv_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
+    return _run(_get_cv_progress(project_id, job_id))
+
+
+async def _get_cv_result(project_id: str) -> dict[str, Any]:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{_API_URL}/projects/{project_id}/cv_result") as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_cv_result(project_id: str) -> dict[str, Any]:
+    return _run(_get_cv_result(project_id))
+
+
+async def _run_ensemble(
+    project_id: str,
+    models: list[str],
+    method: str = "weighted_avg",
+) -> dict[str, Any]:
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{_API_URL}/projects/{project_id}/run_ensemble",
+            json={"models": models, "method": method},
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def run_ensemble(
+    project_id: str, models: list[str], method: str = "weighted_avg"
+) -> dict[str, Any]:
+    return _run(_run_ensemble(project_id, models, method))
+
+
+async def _get_ensemble_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            f"{_API_URL}/projects/{project_id}/ensemble_progress/{job_id}"
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_ensemble_progress(project_id: str, job_id: str) -> list[dict[str, Any]]:
+    return _run(_get_ensemble_progress(project_id, job_id))
+
+
+async def _get_ensemble_result(project_id: str) -> dict[str, Any]:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{_API_URL}/projects/{project_id}/ensemble_result") as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_ensemble_result(project_id: str) -> dict[str, Any]:
+    return _run(_get_ensemble_result(project_id))
+
+
+async def _get_cluster_data(project_id: str) -> dict[str, Any]:
+    """Загружает результаты кластеризации через API."""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{_API_URL}/projects/{project_id}/cluster_data") as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+def get_cluster_data(project_id: str) -> dict[str, Any]:
+    """Загружает результаты кластеризации (синхронная обёртка)."""
+    return _run(_get_cluster_data(project_id))
