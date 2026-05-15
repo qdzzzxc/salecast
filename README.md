@@ -2,7 +2,8 @@
 
 Система прогнозирования временных рядов продаж на основе методов машинного обучения.
 
-Дипломный проект. Тема: **Разработка системы прогнозирования временных рядов продаж на основе методов машинного обучения**.
+Выпускная квалификационная работа. Тема: **Разработка системы прогнозирования временных рядов продаж на основе методов машинного обучения**.
+Финансовый университет при Правительстве РФ, направление «Прикладная математика и информатика», группа ПМ22-1.
 
 ---
 
@@ -11,10 +12,13 @@
 Пользователь загружает CSV с историей продаж по артикулам (товарным позициям). Система автоматически:
 
 1. **Оценивает качество данных** — фильтрует ряды слишком короткие, нулевые или аномальные
-2. **Запускает AutoML** — обучает несколько моделей, сравнивает их по метрикам (MAPE, RMSE, MAE, R²) и выбирает лучшую
-3. **Строит прогноз** — выдаёт предсказания на заданный горизонт вперёд с возможностью экспорта в CSV
+2. **Кластеризует ряды** — UMAP + HDBSCAN или TS2Vec эмбеддинги, кластеры используются как признак для моделей
+3. **Запускает AutoML** — обучает набор моделей (от бейзлайнов до нейросетевых), сравнивает их по метрикам и выбирает лучшую
+4. **Делает кросс-валидацию** — rolling / expanding window на исторических данных
+5. **Строит ансамбли** — взвешенная комбинация лучших моделей
+6. **Прогнозирует** — выдаёт предсказания на заданный горизонт с возможностью экспорта в CSV
 
-Все вычисления асинхронные — задачи выполняются в фоне, интерфейс отображает прогресс в реальном времени.
+Все тяжёлые вычисления асинхронные — задачи выполняются в фоне через Celery, интерфейс отображает прогресс в реальном времени через Redis Streams.
 
 ---
 
@@ -42,11 +46,12 @@
 
 | Компонент | Технология | Назначение |
 |---|---|---|
-| Web-интерфейс | Streamlit | Upload, Quality, AutoML, Forecast |
+| Web-интерфейс | Streamlit | Upload, Quality, Clustering, AutoML, CV, Ensemble, Forecast |
 | API | FastAPI + asyncpg | REST API, управление проектами и задачами |
 | Очередь задач | Celery + Redis | Асинхронное выполнение тяжёлых вычислений |
+| Прогресс задач | Redis Streams | Стрим прогресса AutoML/CV/Forecast в UI |
 | База данных | PostgreSQL | Проекты, задачи (jobs), статусы |
-| Файловое хранилище | MinIO (S3-совместимый) | Сырые данные, сплиты, предсказания, прогнозы |
+| Файловое хранилище | MinIO (S3-совместимый) | Сырые данные, сплиты, предсказания, прогнозы, артефакты моделей |
 | Мониторинг задач | Flower | Web-UI для Celery |
 
 ---
@@ -55,14 +60,22 @@
 
 | Модель | Тип | Описание |
 |---|---|---|
-| **Seasonal Naive** | Baseline | Прогноз = значение той же сезонной точки год назад |
-| **CatBoost** | Gradient Boosting | Лаговые, скользящие, EMA и календарные признаки; поддержка Optuna hyperopt |
-| **AutoARIMA** | Статистическая | Автоматический подбор порядков ARIMA, statsforecast |
-| **AutoETS** | Статистическая | Error-Trend-Seasonal модель с автовыбором компонент |
+| **Seasonal Naive** | Baseline | Прогноз = значение той же сезонной точки сезон назад |
+| **AutoARIMA** | Статистическая | StatsForecast, автоматический подбор порядков |
+| **AutoETS** | Статистическая | Error-Trend-Seasonal с автовыбором компонент |
 | **AutoTheta** | Статистическая | Theta-метод с автоматической декомпозицией |
+| **MSTL** | Статистическая | Multiple Seasonal-Trend декомпозиция + AutoETS на остатке |
+| **CatBoost (global)** | Gradient Boosting | Одна модель на все панели; лаговые/скользящие/EMA/календарные + trend/CDF (Пасканов); Optuna hyperopt |
+| **CatBoost (per-panel)** | Gradient Boosting | Отдельная модель на каждый ряд |
+| **CatBoost Clustered** | Gradient Boosting | Отдельная модель на каждый кластер рядов (UMAP+HDBSCAN) |
+| **TS2Vec → MLP** | Self-supervised + DL | Contrastive энкодер временных рядов + MLP-голова на эмбеддингах |
+| **TS2Vec Clustered** | Self-supervised + GB | TS2Vec эмбеддинги + кластеризация + CatBoost |
+| **PatchTST** | Transformer | Патч-токенизация, neuralforecast |
+| **Chronos** | Foundation model | Pretrained LLM-подобная модель для временных рядов (Amazon) |
+| **Ensemble** | Мета | Взвешенная комбинация топ-N моделей |
 
-Выбор лучшей модели производится по метрике на валидационной выборке (по умолчанию — MAPE).
-Для CatBoost доступна оптимизация гиперпараметров через **Optuna** (30 trials).
+ModelSelector выбирает лучшую модель по метрике на валидационной выборке (по умолчанию — MAPE).
+Для CatBoost доступна оптимизация гиперпараметров через **Optuna** с настраиваемым числом trials и диапазонами.
 
 ---
 
@@ -84,20 +97,23 @@ CSV с продажами
                • edge-zero фильтр
       │
       ▼
-[4. AutoML] → для каждой модели:
-              • fit на train
-              • evaluate на val + test
-              • сохранение предсказаний в MinIO
-              ↓
-              выбор лучшей модели по val-метрике
+[4. Clustering] (опционально) → UMAP → HDBSCAN или TS2Vec эмбеддинги,
+                                кластер используется как признак в моделях
       │
       ▼
-[5. Forecast] → прогноз на N точек вперёд
-                • SeasonalNaive — прямо
-                • StatsModels — sf.predict(h=N)
-                • CatBoost — рекурсивно
-                ↓
-                сохранение forecast.csv в MinIO
+[5. AutoML] → для каждой модели: fit на train → evaluate на val/test
+              → сохранение предсказаний в MinIO
+              → ModelSelector выбирает лучшую по val-метрике
+      │
+      ▼
+[6. Cross-validation] (опционально) → rolling/expanding window поверх выбранных моделей,
+                                       с возможностью hyperopt параметров
+      │
+      ▼
+[7. Ensemble] (опционально) → взвешенная комбинация топ-N моделей
+      │
+      ▼
+[8. Forecast] → прогноз на N точек вперёд, сохранение forecast.csv в MinIO
 ```
 
 ---
@@ -148,29 +164,39 @@ open http://localhost:8501
 ```
 salecast/
 ├── src/                         # Библиотека алгоритмов
-│   ├── automl/                  # AutoML: ModelSelector, Optuna hyperopt
-│   │   └── models/              # CatBoost, SeasonalNaive, StatsForecast обёртки
+│   ├── automl/                  # AutoML: ModelSelector, Optuna hyperopt, конфиги
+│   │   ├── models/              # CatBoost(+clustered), TS2Vec(+clustered), Chronos,
+│   │   │                        # PatchTST, SeasonalNaive, StatsForecast
+│   │   └── ts2vec/              # Реализация TS2Vec энкодера
 │   ├── catboost_utilities/      # Обучение и оценка CatBoost
 │   ├── seasonal_naive_utilities/ # Seasonal Naive модель
+│   ├── clustering.py            # UMAP + HDBSCAN кластеризация рядов
+│   ├── ensemble.py              # Взвешенные ансамбли моделей
+│   ├── classifical_features.py  # Lag / rolling / EMA / calendar / trend / CDF признаки
+│   ├── mstl_features.py         # MSTL-декомпозиция как признак
+│   ├── ts_features.py           # TS2Vec эмбеддинги как признак
 │   ├── filtration.py            # Фильтрация временных рядов
 │   ├── data_processing.py       # Скейлинг, агрегация, expand, сплиты
-│   ├── classifical_features.py  # Lag / rolling / EMA / calendar признаки
+│   ├── model_selection.py       # Временные сплиты (ratio, date, tail, CV)
 │   ├── evaluation.py            # MAPE, RMSE, MAE, R², nRMSE
-│   ├── model_selection.py       # Временные сплиты (ratio, date, tail)
+│   ├── visualization/           # Графики для отчётов и UI
+│   ├── diagnostics/             # Диагностика рядов и моделей
 │   └── custom_types.py          # Общие типы: Splits, ModelResult, AutoMLResult
 │
 ├── api/                         # FastAPI приложение
-│   └── routers/                 # projects, jobs, panels, automl, forecast
+│   └── routers/                 # projects, jobs, panels, automl, clustering,
+│                                # cross_validation, ensemble, forecast
 │
 ├── worker/                      # Celery задачи
-│   └── tasks/                   # run_automl.py, forecast.py
+│   └── tasks/                   # automl, clustering, cross_validation, ensemble, forecast
 │
 ├── app/                         # Streamlit интерфейс
-│   └── views/                   # upload, quality, automl, forecast
+│   └── views/                   # upload, quality, clustering, automl,
+│                                # cross_validation, ensemble, forecast
 │
-├── notebooks/niches/            # Исследовательские ноутбуки (EDA, кластеризация, эксперименты)
-├── tests/                       # Unit и E2E тесты (101 тест, ~76% покрытие)
-├── docker-compose.yml
+├── notebooks/                   # Исследовательские ноутбуки (EDA, кластеризация, эксперименты)
+├── tests/                       # 390 тестов, 84% покрытие
+├── docker-compose.yml           # Полный стек: api, worker, streamlit, postgres, redis, minio
 └── pyproject.toml
 ```
 
@@ -194,4 +220,5 @@ uv run pytest tests/
 uv run python tests/scripts/test_automl_e2e.py
 ```
 
-**Требования:** Python 3.10, [uv](https://github.com/astral-sh/uv), Docker.
+**Стек:** Python 3.10, [uv](https://github.com/astral-sh/uv), Docker, ruff, pytest.
+**Основные библиотеки:** pandas, catboost, statsforecast, neuralforecast, hdbscan, umap-learn, torch (TS2Vec), streamlit, fastapi, celery, sqlalchemy, pydantic.
