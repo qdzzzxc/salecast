@@ -61,7 +61,7 @@ ts2vec_params:
 
 # --- PatchTST ---
 patchtst_params:
-  input_size: 24         # длина входной последовательности (авто: max(24, 3×season))
-  max_steps: 200         # шагов обучения
-  hidden_size: 64        # размер скрытого слоя
-  n_heads: 4             # число голов attention
+  input_size: 12
+  max_steps: 500
+  hidden_size: 32
+  n_heads: 4

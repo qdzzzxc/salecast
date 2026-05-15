@@ -475,6 +475,8 @@ def run_automl(
                     "name": r.name,
                     f"val_{selection_metric}": _extract_metric(r, selection_metric, "val"),
                     f"test_{selection_metric}": _extract_metric(r, selection_metric, "test"),
+                    "val_rmse": _extract_metric(r, "rmse", "val"),
+                    "test_rmse": _extract_metric(r, "rmse", "test"),
                     "panel_metrics": _extract_panel_metrics(r, selection_metric),
                     "predictions_key": pred_keys.get(r.name),
                     "feature_importance": r.feature_importance,

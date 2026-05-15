@@ -205,6 +205,26 @@ async def run_automl(
     return _to_job_schema(job)
 
 
+@router.get("/{project_id}/automl_result")
+async def get_automl_result(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Возвращает агрегированный результат проекта (split + automl + clustering)."""
+    db_result = await db.execute(
+        select(Project).options(selectinload(Project.jobs)).where(Project.id == project_id)
+    )
+    project = db_result.scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+
+    result: dict[str, Any] = {}
+    for j in sorted(project.jobs, key=lambda j: j.created_at):
+        if j.status == "done" and j.result:
+            result.update(j.result)
+    return {"project_id": str(project_id), "name": project.name, "result": result}
+
+
 @router.get("/{project_id}/automl_predictions")
 async def get_automl_predictions(
     project_id: uuid.UUID,
