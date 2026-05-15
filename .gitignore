@@ -229,3 +229,6 @@ example.sh
 papers/*
 plans/
 .playwright-mcp/
+scripts/data/*
+*.png
+assets
